@@ -507,41 +507,43 @@ public void Cmd_Event(Source2ModCommandContext context, Source2ModCommandArgs ar
  *
  *   What the server itself is doing, as opposed to what the game announces:
  *   entities coming and going, entity outputs firing, clients connecting,
- *   the frame ticking. Map start and end are in section 1. And the one place
- *   this plugin hooks the engine itself, for what Source2Mod does not cover.
+ *   the frame ticking. Map start and end are in section 1. Entities are
+ *   listeners of Source2ModEntities; the engine's callbacks -- and one engine
+ *   function with no callback of its own -- are hook points.
  *
  * ========================================================================== */
 
 void SetupCoreEvents()
 {
-	// IEntityListener: created / spawned / deleted (/ parent changed), each
-	// optional.
-	Source2ModEntities.AddEntityListener(OnEntityCreated, OnEntitySpawned, OnEntityDeleted);
+	// The entity listener: created / spawned / deleted (/ parent changed),
+	// each optional. A designer name keeps it to the entities it cares
+	// about; an entity would keep it to that one.
+	Source2ModEntities.AddEntityListener(_, OnSmokeSpawned, _, _, "smokegrenade_projectile");
 
-	// IEntityIOListener: a classname and an output, "" for "any". Pre may
-	// return Action_Supersede, and the output then never fires -- the door
-	// stays shut, the button does nothing.
-	Source2ModEntities.AddEntityIOListener(OnEntityOutput, "func_button", "OnPressed");
-	Source2ModEntities.AddEntityIOListener(OnEntityOutput, "", "OnStartTouch", true);
+	// The output listener: by designer name and output, "" for "any". Called
+	// pre and post; pre may answer Action_Supersede, and the output then never
+	// fires -- the door stays shut, the button does nothing.
+	Source2ModEntities.AddEntityOutputListener(OnEntityOutput, "func_button", "OnPressed");
 
-	// The client callbacks and the frame are Source2Mod_On* forwards, below;
-	// two engine calls Source2Mod has no callback for are raw hooks.
-	SetupRawEngineHooks();
+	// Everything else here is one call: Source2ModHooks.Hook(point, handler,
+	// post). The handler gets the point's context. Every Hook* returns an id
+	// for Unhook; what is still hooked when the plugin unloads goes with it.
+	// Pre (false) runs before the engine's own code, post (true) after it.
+	Source2ModHooks.Hook(HookPoint_ClientConnect, OnClientConnect);
+	Source2ModHooks.Hook(HookPoint_ClientConnected, OnClientConnected, true);
+	Source2ModHooks.Hook(HookPoint_ClientPutInServer, OnClientPutInServer, true);
+	Source2ModHooks.Hook(HookPoint_ClientSettingsChanged, OnClientSettingsChanged, true);
+	Source2ModHooks.Hook(HookPoint_ClientDisconnect, OnClientDisconnect);
+	Source2ModHooks.Hook(HookPoint_ClientDisconnect, OnClientDisconnectPost, true);
+	Source2ModHooks.Hook(HookPoint_GameFrame, OnGameFrame, true);
+
+	SetupClientCommandHook();
 }
 
-public void OnEntityCreated(CEntityInstance entity)
+public void OnSmokeSpawned(CEntityInstance entity)
 {
-	// Created is early: the entity exists, its keyvalues have not been applied
-	// and it has not spawned. Good for noticing, too soon for changing.
-}
-
-public void OnEntitySpawned(CEntityInstance entity)
-{
-	// Every smoke grenade thrown from here on is purple.
-	char classname[64];
-	entity.GetClassname(classname, sizeof(classname));
-	if (!Source2ModUtils.Equal(classname, "smokegrenade_projectile"))
-		return;
+	// Every smoke grenade thrown from here on is purple (the designer name
+	// above lets only those through).
 
 	// The game fills the projectile in right after spawning it, so a change
 	// made here would be overwritten. One frame later it sticks. The entity
@@ -560,15 +562,9 @@ public void PaintSmoke(any data)
 	smoke.Set_m_vSmokeColor(purple);
 }
 
-public void OnEntityDeleted(CEntityInstance entity)
+public Source2ModAction OnEntityOutput(CEntityInstance caller, const char[] output, CEntityInstance activator, float delay, bool post)
 {
-	// Last call for this entity: after it, anything still holding it reads
-	// IsValid() == false.
-}
-
-public Source2ModAction OnEntityOutput(const char[] output, CEntityInstance activator, CEntityInstance caller, float delay, bool post)
-{
-	// OnStartTouch fires constantly; only the button is worth a log line.
+	// Called pre and post; one log line is enough.
 	if (!post)
 	{
 		char callerClass[64] = "?", activatorClass[64] = "none";
@@ -583,71 +579,91 @@ public Source2ModAction OnEntityOutput(const char[] output, CEntityInstance acti
 	return Action_Ignore;
 }
 
-// The client and frame callbacks: forwards, called for every plugin that
-// declares them. Nothing to install or take down.
-
-// Pre ClientConnect, players only. Returning false turns the connection away
-// with the reason written into rejectReason -- try it by connecting with
+// Pre ClientConnect, players only. Supersede with result = false turns the
+// connection away with the reason set here -- try it by connecting with
 // "sp_rejected" as your name.
-public bool Source2Mod_OnClientConnect(CPlayerSlot slot, const char[] name, const char[] xuid, const char[] networkId, bool unk1, char[] rejectReason, int maxlen)
+public Source2ModAction OnClientConnect(ClientConnectContext ctx, bool post, bool &result)
 {
-	Source2ModApi.Log("OnClientConnect(%d, \"%s\", %s, \"%s\")", slot.Get(), name, xuid, networkId);
+	char name[64], xuid[24], networkId[64];
+	ctx.GetName(name, sizeof(name));
+	ctx.GetXuid(xuid, sizeof(xuid));
+	ctx.GetNetworkId(networkId, sizeof(networkId));
+	Source2ModApi.Log("OnClientConnect(%d, \"%s\", %s, \"%s\")", ctx.slot.Get(), name, xuid, networkId);
 
 	if (Source2ModUtils.Equal(name, "sp_rejected"))
 	{
-		Source2ModUtils.Copy(rejectReason, maxlen, "Rejected by the sample plugin.");
-		return false;
+		ctx.SetRejectReason("Rejected by the sample plugin.");
+		result = false;
+		return Action_Supersede;
 	}
-	return true;
+	return Action_Ignore;
 }
 
-// The slot is taken -- by bots too, which never go through OnClientConnect.
-public void Source2Mod_OnClientConnected(CPlayerSlot slot, const char[] name, const char[] xuid, const char[] networkId, const char[] address, bool fakePlayer)
+// The slot is taken -- by bots too, which never go through ClientConnect.
+public Source2ModAction OnClientConnected(ClientConnectedContext ctx, bool post)
 {
-	Source2ModApi.Log("OnClientConnected(%d, \"%s\", %s, \"%s\", %d)", slot.Get(), name, address, networkId, fakePlayer);
+	char name[64], address[64], networkId[64];
+	ctx.GetName(name, sizeof(name));
+	ctx.GetAddress(address, sizeof(address));
+	ctx.GetNetworkId(networkId, sizeof(networkId));
+	Source2ModApi.Log("OnClientConnected(%d, \"%s\", %s, \"%s\", %d)", ctx.slot.Get(), name, address, networkId, ctx.fakePlayer);
+	return Action_Ignore;
 }
 
-public void Source2Mod_OnClientPutInServer(CPlayerSlot slot, const char[] name, int type, const char[] xuid)
+public Source2ModAction OnClientPutInServer(ClientPutInServerContext ctx, bool post)
 {
-	Source2ModApi.Log("OnClientPutInServer(%d, \"%s\", %d, %s)", slot.Get(), name, type, xuid);
+	char name[64], xuid[24];
+	ctx.GetName(name, sizeof(name));
+	ctx.GetXuid(xuid, sizeof(xuid));
+	Source2ModApi.Log("OnClientPutInServer(%d, \"%s\", %d, %s)", ctx.slot.Get(), name, ctx.type, xuid);
+	return Action_Ignore;
 }
 
-public void Source2Mod_OnClientSettingsChanged(CPlayerSlot slot)
+public Source2ModAction OnClientSettingsChanged(ClientSlotContext ctx, bool post)
 {
-	Source2ModApi.Log("OnClientSettingsChanged(%d)", slot.Get());
+	Source2ModApi.Log("OnClientSettingsChanged(%d)", ctx.slot.Get());
+	return Action_Ignore;
 }
 
-public void Source2Mod_OnClientDisconnect(CPlayerSlot slot, int reason, const char[] name, const char[] xuid, const char[] networkId)
+// Pre: the player is still there -- the last look at what they had.
+public Source2ModAction OnClientDisconnect(ClientDisconnectContext ctx, bool post)
 {
-	Source2ModApi.Log("OnClientDisconnect(%d, %d, \"%s\", %s, \"%s\")", slot.Get(), reason, name, xuid, networkId);
+	char name[64], xuid[24], networkId[64];
+	ctx.GetName(name, sizeof(name));
+	ctx.GetXuid(xuid, sizeof(xuid));
+	ctx.GetNetworkId(networkId, sizeof(networkId));
+	Source2ModApi.Log("OnClientDisconnect(%d, %d, \"%s\", %s, \"%s\")", ctx.slot.Get(), ctx.reason, name, xuid, networkId);
 
 	// Per-slot state has to go with the player, or the next one to take the
 	// slot inherits it.
-	PlayerMask_Remove(g_NoShakeMask, slot.Get());
-	PlayerMask_Remove(g_VoiceMutedMask, slot.Get());
+	PlayerMask_Remove(g_NoShakeMask, ctx.slot.Get());
+	PlayerMask_Remove(g_VoiceMutedMask, ctx.slot.Get());
+	return Action_Ignore;
 }
 
-// After the engine let the player go; OnClientDisconnect (before it) is the
-// last look at what they had.
-public void Source2Mod_OnClientDisconnectPost(CPlayerSlot slot, int reason, const char[] name, const char[] xuid, const char[] networkId)
+// Post: after the engine let the player go.
+public Source2ModAction OnClientDisconnectPost(ClientDisconnectContext ctx, bool post)
 {
-	Source2ModApi.Log("OnClientDisconnectPost(%d, %d, \"%s\")", slot.Get(), reason, name);
+	char name[64];
+	ctx.GetName(name, sizeof(name));
+	Source2ModApi.Log("OnClientDisconnectPost(%d, %d, \"%s\")", ctx.slot.Get(), ctx.reason, name);
+	return Action_Ignore;
 }
 
-public void Source2Mod_OnGameFrame(bool simulating, bool firstTick, bool lastTick)
+public Source2ModAction OnGameFrame(GameFrameContext ctx, bool post)
 {
 	// Runs every tick, right after the game's own GameFrame -- 64 times a
 	// second, so keep it cheap. `simulating` is false while the game is not
-	// ticking (paused, hibernating). A plugin that does not declare this
-	// forward costs nothing per frame.
+	// ticking (paused, hibernating). A plugin that does not hook it costs
+	// nothing per frame.
+	return Action_Ignore;
 }
 
-// Something Source2Mod has no callback for: swallowing a client command
-// before the engine sees it. For that the plugin hooks the engine itself --
-// a virtual function of CSource2GameClients, like cpp_sample's KHOOK_VIRTUALs. A plugin with hooks of its own needs a
-// gamedata update whenever the game moves them; prefer what Source2Mod has.
+// What has no point of its own is still one call away: HookFunction takes any
+// Source2ModFunction. Here a virtual of CSource2GameClients, by its vtable
+// slot -- cpp_sample does the same on the interface object.
 
-void SetupRawEngineHooks()
+void SetupClientCommandHook()
 {
 	// ISource2GameClients::ClientCommand is in the core's gamedata; the slot
 	// is the same on both platforms.
@@ -655,25 +671,24 @@ void SetupRawEngineHooks()
 	if (commandIndex < 0)
 		return;
 
-	// A member function's first parameter is `this`; every other index
-	// counts from there.
-
-	// void ClientCommand(CPlayerSlot, const CCommand &args)
-	Source2ModHook command = Source2ModHook.FromVirtual("server", "CSource2GameClients", commandIndex, Source2ModType_Void);
+	// void ClientCommand(CPlayerSlot, const CCommand &args). A member
+	// function's first parameter is `this`; FunctionContext counts from 0,
+	// so `this` is 0 and the command 2.
+	Source2ModFunction command = Source2ModFunction.FromVirtualTable("server", "CSource2GameClients", commandIndex, Source2ModType_Void);
 	if (command != null)
 	{
 		command.AddParam(Source2ModType_Pointer);        // this
 		command.AddParam(Source2ModType_Int32);          // CPlayerSlot
 		command.AddParam(Source2ModType_Command);        // const CCommand &
-		command.Enable(Hook_ClientCommand);
+		Source2ModHooks.HookFunction(command, Hook_ClientCommand);
 	}
 }
 
-public Source2ModAction Hook_ClientCommand(Source2ModHookParams params, Source2ModHookReturn ret, bool post)
+public Source2ModAction Hook_ClientCommand(FunctionContext ctx, bool post)
 {
 	// Supersede blocks the original entirely -- the engine never sees this
 	// command. Use it to take a command over, not to "handle it as well".
-	Source2ModCommandArgs args = params.GetCommandArgs(3);
+	Source2ModCommandArgs args = ctx.GetCommandArgs(2);
 
 	char command[64];
 	args.Arg(0, command, sizeof(command));
@@ -906,10 +921,11 @@ public Source2ModAction OnSound(ISource2ModSound sound)
  *   8. Game functions
  *
  *   Game functions no interface exposes. The common ones -- TakeDamage,
- *   PostThink, ... -- the core hooks for you: Source2ModGameHooks, resolved
- *   from the core's own gamedata, so a plugin never touches a signature and
- *   survives an engine update with a core update. Anything else is hooked
- *   and called by gamedata name or by a signature of your own.
+ *   PostThink, ... -- are typed hook points (HookPoint_TakeDamage, ...),
+ *   resolved from the core's own gamedata, so a plugin never touches a
+ *   signature and survives an engine update with a core update. Any other
+ *   function is a Source2ModFunction -- by gamedata name, address or a
+ *   signature of your own -- hooked with HookFunction and called with Call.
  *
  * ========================================================================== */
 
@@ -917,13 +933,15 @@ Source2ModFunction g_SwitchTeam;
 
 void SetupGameFunctions()
 {
-	// false = Pre, before the game's code. The id it returns is what
-	// UnhookTakeDamage() takes it off again with.
-	Source2ModGameHooks.HookTakeDamage(OnTakeDamage, false);
+	// false = Pre, before the game's code. Hook is every entity;
+	// HookInstance(point, pawn, ...) would be one pawn, HookClass(point,
+	// "CCSPlayerPawn", ...) every player pawn. The id it returns is what
+	// Source2ModHooks.Unhook() takes it off again with.
+	Source2ModHooks.Hook(HookPoint_TakeDamage, OnTakeDamage, false);
 
 	// Post: runs after the game's PostThink, for every pawn every tick -- do
 	// as little as possible here.
-	Source2ModGameHooks.HookPostThink(OnPostThink, true);
+	Source2ModHooks.Hook(HookPoint_PostThink, OnPostThink, true);
 
 	// Calling. A gamedata entry, the return type and the parameters -- `this`
 	// first for a method -- are all it takes. Add entries of your own to the
@@ -937,7 +955,7 @@ void SetupGameFunctions()
 
 	Source2ModCommands.RegisterConCommand("sp_swap", Cmd_Swap);
 
-	SetupRawGameHooks();
+	SetupFunctionHooks();
 }
 
 public void Cmd_Swap(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
@@ -1003,16 +1021,23 @@ public Source2ModAction OnPostThink(PostThinkContext ctx, bool post)
 	return Action_Ignore;
 }
 
-// Raw hooks of game functions -- cpp_sample's KHOOK_MEMBER / KHOOK_FUNCTION,
-// one per way of getting the address. Look in Source2ModGameHooks first: what
-// is there needs no hook of your own.
+// Any other function -- cpp_sample's HookPoint::Function, one per way of
+// getting it. Look at the typed points first: what is there needs no
+// function of your own. A FunctionContext reads the call by index, `this`
+// being 0 for a method.
 
-void SetupRawGameHooks()
+void SetupFunctionHooks()
 {
-	// 1. A function the core resolves (cpp_sample: ISource2ModAddresses):
-	//    every item a player is given -- sp_give below, buying, a round's
-	//    loadout. Pre.
-	Source2ModHook giveNamedItem = Source2ModHook.FromGameConfig("CCSPlayer_ItemServices::GiveNamedItem", Source2ModType_Entity);
+	// 1. A gamedata entry with a "function" object (the core's or one you
+	//    added): Find and nothing else -- the types come from the gamedata.
+	//    Every team switch, sp_swap's included. Pre.
+	Source2ModFunction switchTeam = Source2ModFunction.Find("CCSPlayerController::SwitchTeam");
+	if (switchTeam != null)
+		Source2ModHooks.HookFunction(switchTeam, Hook_SwitchTeam);
+
+	// 2. A gamedata entry without one, with the types spelled out: every item
+	//    a player is given -- sp_give below, buying, a round's loadout.
+	Source2ModFunction giveNamedItem = Source2ModFunction.FromGameConfig("CCSPlayer_ItemServices::GiveNamedItem", Source2ModType_Entity);
 	if (giveNamedItem != null)
 	{
 		giveNamedItem.AddParam(Source2ModType_Object);    // this: the item services
@@ -1021,60 +1046,49 @@ void SetupRawGameHooks()
 		giveNamedItem.AddParam(Source2ModType_Pointer);   // CEconItemView *
 		giveNamedItem.AddParam(Source2ModType_Bool);      // force
 		giveNamedItem.AddParam(Source2ModType_Pointer);
-		giveNamedItem.Enable(Hook_GiveNamedItem);
+		Source2ModHooks.HookFunction(giveNamedItem, Hook_GiveNamedItem);
 	}
 
 	//    ... and on a free function: every entity the game removes.
-	Source2ModHook utilRemove = Source2ModHook.FromGameConfig("UTIL::Remove", Source2ModType_Void);
+	Source2ModFunction utilRemove = Source2ModFunction.FromGameConfig("UTIL::Remove", Source2ModType_Void);
 	if (utilRemove != null)
 	{
 		utilRemove.AddParam(Source2ModType_Entity);
-		utilRemove.Enable(Hook_UtilRemove);
-	}
-
-	// 2. The name of a gamedata entry -- Source2Mod's or one you added. Its
-	//    library is read and the function found by exported symbol or by
-	//    pattern, whichever the entry has; a game update is a gamedata update.
-	Source2ModHook switchTeam = Source2ModHook.FromGameConfig("CCSPlayerController::SwitchTeam", Source2ModType_Void);
-	if (switchTeam != null)
-	{
-		switchTeam.AddParam(Source2ModType_Entity);
-		switchTeam.AddParam(Source2ModType_Int32);
-		switchTeam.Enable(Hook_SwitchTeam);
+		Source2ModHooks.HookFunction(utilRemove, Hook_UtilRemove);
 	}
 
 	// 3. A pattern of your own, hardcoded. Only for what nothing else
-	//    resolves -- it needs a rebuild whenever the game moves the function.
-	//    A script has no WIN_LINUX(): the pattern for the other platform simply
-	//    does not resolve, so try both.
-	Source2ModHook snapViewAngles = Source2ModHook.FromSignature("server",
+	//    resolves -- it needs a plugin update whenever the game moves the
+	//    function. A script has no WIN_LINUX(): the pattern for the other
+	//    platform simply does not resolve, so try both.
+	Source2ModFunction snapViewAngles = Source2ModFunction.FromSignature("server",
 	    "55 48 89 E5 41 57 49 89 FF 48 89 F7 41 56 41 55 41 54 53 48 81 EC ? ? ? ? E8", Source2ModType_Void);
 	if (snapViewAngles == null)
-		snapViewAngles = Source2ModHook.FromSignature("server",
+		snapViewAngles = Source2ModFunction.FromSignature("server",
 		    "48 89 7C 24 ? 55 48 8B EC 48 81 EC ? ? ? ? 48 8B F9 48 8D 4D ? E8 ? ? ? ? F2 0F 10 87 C8 0B 00 00", Source2ModType_Void);
 	if (snapViewAngles != null)
 	{
 		snapViewAngles.AddParam(Source2ModType_Entity);   // this: the pawn
 		snapViewAngles.AddParam(Source2ModType_Vector);   // QAngle *
-		snapViewAngles.Enable(Hook_SnapViewAngles);
+		Source2ModHooks.HookFunction(snapViewAngles, Hook_SnapViewAngles);
 	}
 }
 
-public Source2ModAction Hook_GiveNamedItem(Source2ModHookParams params, Source2ModHookReturn ret, bool post)
+public Source2ModAction Hook_GiveNamedItem(FunctionContext ctx, bool post)
 {
 	char item[64];
-	params.GetString(2, item, sizeof(item));
+	ctx.GetString(1, item, sizeof(item));
 	Source2ModApi.Log("GiveNamedItem: %s", item[0] ? item : "?");
 
-	// Action_Supersede with ret.SetEntity(NULL_ENTITY) would give nothing --
+	// Action_Supersede with ctx.SetReturnEntity(NULL_ENTITY) would give nothing --
 	// the caller gets no weapon back.
 	return Action_Ignore;
 }
 
-public Source2ModAction Hook_UtilRemove(Source2ModHookParams params, Source2ModHookReturn ret, bool post)
+public Source2ModAction Hook_UtilRemove(FunctionContext ctx, bool post)
 {
 	// That is a lot of entities, so it only looks at weapons.
-	CEntityInstance entity = params.GetEntity(1);
+	CEntityInstance entity = ctx.GetEntity(0);
 	if (entity == NULL_ENTITY)
 		return Action_Ignore;
 
@@ -1086,29 +1100,29 @@ public Source2ModAction Hook_UtilRemove(Source2ModHookParams params, Source2ModH
 	return Action_Ignore;
 }
 
-public Source2ModAction Hook_SnapViewAngles(Source2ModHookParams params, Source2ModHookReturn ret, bool post)
+public Source2ModAction Hook_SnapViewAngles(FunctionContext ctx, bool post)
 {
 	// A pawn's view snapped to new angles -- a teleport with angles, a
-	// respawn. params.SetVector(2, ...) here changes where it looks.
+	// respawn. ctx.SetVector(1, ...) here changes where it looks.
 
 	// Bots have their views snapped all the time; only players are worth a
 	// log line.
-	CBasePlayerPawn pawn = view_as<CBasePlayerPawn>(params.GetEntity(1));
+	CBasePlayerPawn pawn = view_as<CBasePlayerPawn>(ctx.GetEntity(0));
 	CCSPlayerController controller = pawn != NULL_ENTITY ? pawn.GetController() : NULL_ENTITY;
 	if (controller == NULL_ENTITY || controller.IsBot())
 		return Action_Ignore;
 
 	float angles[3];
-	params.GetVector(2, angles);
+	ctx.GetVector(1, angles);
 	Source2ModApi.Log("SnapViewAngles: %.1f %.1f %.1f", angles[0], angles[1], angles[2]);
 	return Action_Ignore;
 }
 
-public Source2ModAction Hook_SwitchTeam(Source2ModHookParams params, Source2ModHookReturn ret, bool post)
+public Source2ModAction Hook_SwitchTeam(FunctionContext ctx, bool post)
 {
 	// Pre, so the player is still on the old team here -- sp_swap's switch
 	// included.
-	CCSPlayerController controller = view_as<CCSPlayerController>(params.GetEntity(1));
+	CCSPlayerController controller = view_as<CCSPlayerController>(ctx.GetEntity(0));
 
 	char name[64] = "?";
 	int oldTeam = -1;
@@ -1118,10 +1132,10 @@ public Source2ModAction Hook_SwitchTeam(Source2ModHookParams params, Source2ModH
 		oldTeam = controller.m_iTeamNum;
 	}
 
-	Source2ModApi.Log("SwitchTeam: %s %d -> %d", name, oldTeam, params.GetInt(2));
+	Source2ModApi.Log("SwitchTeam: %s %d -> %d", name, oldTeam, ctx.GetInt(1));
 
 	// Action_Supersede would keep the player where they are; changing the
-	// team is params.SetInt(2, team) and Action_Override.
+	// team is ctx.SetInt(1, team) and Action_Override.
 	return Action_Ignore;
 }
 

@@ -75,8 +75,6 @@
 SamplePlugin g_Plugin;
 SOURCE2MOD_EXPOSE(cpp_sample, g_Plugin);
 
-ISource2ModModule *g_pServerModule = nullptr;
-
 /* ============================================================================
  *
  *   Shared helpers
@@ -155,20 +153,10 @@ bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t ma
 
     SOURCE2MOD_LOG(this, "Starting plugin.\n");
 
-    // For the hardcoded pattern in plugin.h: FindPattern needs the module.
-    g_pServerModule = LOAD_MODULE("server");
-
-    // The two raw hooks declared with KHOOK_* in plugin.h go onto the
-    // interface instance just set above. One that cannot be resolved is
-    // logged and skipped; the rest still go in. The KHook commit check inside
-    // returns false out of Load() on a mismatch -- only a plugin with raw
-    // hooks has one to fail.
-    KHOOK_INIT();
-
-    SOURCE2MOD_LOG(this, "All hooks started!\n");
-
-    // OnLevelInit, the client callbacks, OnGameFrame and the rest of
-    // ISource2ModListener.
+    // OnLevelInit, OnAllSource2ModPluginsLoaded and the rest of
+    // ISource2ModListener. Everything the engine and the game do -- clients,
+    // frames, entities, game functions -- is a hook point instead
+    // (ISource2ModHooks, sections 5 and 8).
     api->AddListener(this, this);
 
     SetupConVars();
@@ -195,18 +183,6 @@ bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t ma
 
 bool SamplePlugin::Unload(char* error, size_t maxlen)
 {
-    // Detaches every hook and deletes it -- deleting is what takes a detour
-    // down. After this nothing in the engine points into this library any
-    // more. A live hook left past unload would jump into unmapped memory on
-    // the next call.
-    KHOOK_DESTRUCT();
-
-    if (g_pServerModule)
-    {
-        FREE_MODULE(g_pServerModule);
-        g_pServerModule = nullptr;
-    }
-
     // The CConVars below are objects in this library, and ConVar_Register handed
     // the engine pointers to them. Without this the engine keeps those pointers
     // after the library is unloaded, and the next thing to touch one -- the
@@ -218,10 +194,10 @@ bool SamplePlugin::Unload(char* error, size_t maxlen)
     ConVar_Unregister();
 
     // Everything else this plugin registered -- commands, command and chat
-    // listeners, game event hooks, game hooks, net message hooks, the sound
-    // hook, the entity listeners, timers, sounds -- belongs to it (the core
+    // listeners, game event hooks, hooks of every point, net message hooks,
+    // the sound hook, functions, timers, sounds -- belongs to it (the core
     // reads that off each handler), and Source2Mod drops all of it when the
-    // plugin goes. Taking them down by hand (UnhookGameEvent, UnhookTakeDamage,
+    // plugin goes. Taking them down by hand (UnhookGameEvent, Unhook,
     // UnregisterConCommand, KillTimer, ... by the id or the same handler) is
     // for turning a feature off while the plugin stays loaded.
 
@@ -535,32 +511,51 @@ void SamplePlugin::SetupGameEvents()
 
 void SamplePlugin::SetupCoreEvents()
 {
-    // IEntityListener: OnEntityCreated / Spawned / Deleted / ParentChanged.
-    g_pSource2ModEntities->AddEntityListener(this);
+    // Entity events: IEntityListener (OnEntityCreated / Spawned / Deleted /
+    // ParentChanged -- override what you need). A designer name keeps it to
+    // the entities it cares about -- here every smoke grenade; an entity
+    // pointer would keep it to that one.
+    g_pSource2ModEntities->AddEntityListener(this, "smokegrenade_projectile");
 
-    // IEntityIOListener: a classname and an output, nullptr for "any". Pre
-    // may return Action::Supersede, and the output then never fires -- the
-    // door stays shut, the button does nothing.
-    g_pSource2ModEntities->AddEntityIOListener(this, "func_button", "OnPressed");
-    g_pSource2ModEntities->AddEntityIOListener(this, nullptr, "OnStartTouch", true);
+    // Entity outputs: IEntityOutputListener, by designer name and output,
+    // nullptr for "any". Called pre and post; pre may answer
+    // Action::Supersede, and the output then never fires -- the door stays
+    // shut, the button does nothing.
+    g_pSource2ModEntities->AddEntityOutputListener(this, "func_button", "OnPressed");
 
-    // The client callbacks and OnGameFrame come through ISource2ModListener, see
-    // below; two engine calls Source2Mod has no callback for are raw KHook
-    // hooks.
-}
+    // Everything else here is one call: g_pSource2ModHooks->Hook(point,
+    // target, handler, post, filter). The point says what, the target on which
+    // object (All() = every one), the handler gets the point's context. Every
+    // Hook() returns an id for Unhook(); what is still hooked when the plugin
+    // unloads the core drops.
+    //
+    // Engine callbacks take HookTarget::All() only. Pre runs before the
+    // engine's own code, post (true) after it.
+    g_pSource2ModHooks->Hook(HookPoint::ClientConnect, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientConnect));
+    g_pSource2ModHooks->Hook(HookPoint::ClientPutInServer, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientPutInServer), true);
+    g_pSource2ModHooks->Hook(HookPoint::ClientSettingsChanged, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientSettingsChanged), true);
+    g_pSource2ModHooks->Hook(HookPoint::ClientDisconnect, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientDisconnect));
+    g_pSource2ModHooks->Hook(HookPoint::GameFrame, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnGameFrame), true);
 
-void SamplePlugin::OnEntityCreated(CEntityInstance* pEntity)
-{
-    // Created is early: the entity exists, its keyvalues have not been applied
-    // and it has not spawned. Good for noticing, too soon for changing.
+    // What has no point of its own is still one call away: HookPoint::Function
+    // takes any ISource2ModFunction. Here a virtual of an engine interface --
+    // ISource2GameClients::ClientCommand, by its vtable slot -- on the one
+    // object it lives on. The types say how to read the call: `this`, the
+    // slot, the command.
+    static const Source2ModType kClientCommand[] = { Source2ModType::Pointer, Source2ModType::Int32, Source2ModType::Command };
+    ISource2ModFunction *pClientCommand = g_pSource2ModFunctions->FromVirtual(g_PluginID,
+        KHook::GetVtableIndex(&ISource2GameClients::ClientCommand),
+        FunctionTypes{ Source2ModType::Void, kClientCommand, 3, true });
+
+    g_pSource2ModHooks->Hook(HookPoint::Function(pClientCommand), HookTarget::Instance(g_pSource2GameClients),
+                             SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientCommand));
 }
 
 void SamplePlugin::OnEntitySpawned(CEntityInstance* pEntity)
 {
-    // Every smoke grenade thrown from here on is purple.
-    if (V_strcmp(pEntity->GetClassname(), "smokegrenade_projectile") != 0)
-        return;
-
+    // Every smoke grenade thrown from here on is purple (the designer name
+    // above lets only those through).
+    //
     // The game fills the projectile in right after spawning it, so a change
     // made here would be overwritten. One frame later it sticks. A raw pointer
     // must not cross a frame -- the entity may be gone by then -- a handle
@@ -574,93 +569,86 @@ void SamplePlugin::OnEntitySpawned(CEntityInstance* pEntity)
     });
 }
 
-void SamplePlugin::OnEntityDeleted(CEntityInstance* pEntity)
+Action SamplePlugin::OnEntityOutput(CEntityInstance* pCaller, const char* pszOutput, CEntityInstance* pActivator, float flDelay, bool post)
 {
-    // Last call for this entity. Anything holding a raw pointer to it has to
-    // let go now.
-}
-
-Action SamplePlugin::OnEntityOutput(const char* pchOutputName, CEntityInstance* pActivator, CEntityInstance* pCaller, float flDelay, bool post)
-{
-    // OnStartTouch fires constantly; only the button is worth a log line.
+    // Called pre and post; one log line is enough.
     if (!post)
     {
         SOURCE2MOD_LOG(this, "%s fired %s (activator: %s)\n",
-                    pCaller ? pCaller->GetClassname() : "?", pchOutputName,
+                    pCaller ? pCaller->GetClassname() : "?", pszOutput,
                     pActivator ? pActivator->GetClassname() : "none");
     }
 
     return Action::Ignore;
 }
 
-// The client and frame callbacks come from ISource2ModListener, the same object
-// Load() handed to AddListener(). Nothing to install or take down.
-
-void SamplePlugin::OnClientPutInServer(CPlayerSlot slot, const char* pszName, int type, uint64 xuid)
+HookReturn<bool> SamplePlugin::OnClientConnect(ClientConnectContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientPutInServer(%d, \"%s\", %d, %lld)\n", slot.Get(), pszName, type, xuid);
+    SOURCE2MOD_LOG(this, "OnClientConnect(%d, \"%s\", %lld, \"%s\")\n", ctx.slot.Get(), ctx.name, ctx.xuid, ctx.networkId);
+
+    // A point with a return value answers the value alongside the action.
+    // Supersede with false turns the client away, with the reason in
+    // ctx.rejectReason. Try it by connecting with "sample_rejected" as your
+    // name. Not called for bots.
+    if (!V_strcmp(ctx.name, "sample_rejected"))
+    {
+        ctx.rejectReason->Insert(0, "Rejected by the sample plugin.");
+        return { Action::Supersede, false };
+    }
+
+    // Ignore: the engine decides as it would have.
+    return Action::Ignore;
 }
 
-void SamplePlugin::OnClientSettingsChanged(CPlayerSlot slot)
+HookReturn<void> SamplePlugin::OnClientPutInServer(ClientPutInServerContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientSettingsChanged(%d)\n", slot.Get());
+    SOURCE2MOD_LOG(this, "OnClientPutInServer(%d, \"%s\", %d, %lld)\n", ctx.slot.Get(), ctx.name, ctx.type, ctx.xuid);
+    return Action::Ignore;
 }
 
-void SamplePlugin::OnClientDisconnect(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* pszName, uint64 xuid, const char* pszNetworkID)
+HookReturn<void> SamplePlugin::OnClientSettingsChanged(ClientSlotContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientDisconnect(%d, %d, \"%s\", %lld, \"%s\")\n", slot.Get(), reason, pszName, xuid, pszNetworkID);
+    SOURCE2MOD_LOG(this, "OnClientSettingsChanged(%d)\n", ctx.slot.Get());
+    return Action::Ignore;
+}
+
+HookReturn<void> SamplePlugin::OnClientDisconnect(ClientDisconnectContext& ctx, bool post)
+{
+    SOURCE2MOD_LOG(this, "OnClientDisconnect(%d, %d, \"%s\", %lld, \"%s\")\n", ctx.slot.Get(), ctx.reason, ctx.name, ctx.xuid, ctx.networkId);
 
     // Per-slot state has to go with the player, or the next one to take the
     // slot inherits it.
-    const uint64_t bit = uint64_t(1) << slot.Get();
+    const uint64_t bit = uint64_t(1) << ctx.slot.Get();
     m_NoShakeMask &= ~bit;
     m_VoiceMutedMask &= ~bit;
+
+    return Action::Ignore;
 }
 
-void SamplePlugin::OnGameFrame(bool simulating, bool bFirstTick, bool bLastTick)
+HookReturn<void> SamplePlugin::OnGameFrame(GameFrameContext& ctx, bool post)
 {
     // Runs every tick, right after the game's own GameFrame -- 64 times a
-    // second, so keep it cheap. `simulating` is false while the game is not
-    // ticking (paused, hibernating).
+    // second, so keep it cheap. `ctx.simulating` is false while the game is
+    // not ticking (paused, hibernating).
+    return Action::Ignore;
 }
 
-// Two things Source2Mod has no callback for: turning a connection away, and
-// swallowing a client command before the engine sees it. For those the
-// plugin hooks the engine itself -- the KHOOK_VIRTUAL lines in plugin.h,
-// installed by KHOOK_INIT() in Load(). See there for what that costs.
-
-KHook::Return<bool> SamplePlugin::Hook_ClientConnect(ISource2GameClients* pThis, CPlayerSlot slot, const char* pszName, uint64 xuid, const char* pszNetworkID, bool unk1, CBufferString* pRejectReason)
+HookReturn<void> SamplePlugin::OnClientCommand(FunctionContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "Hook_ClientConnect(%d, \"%s\", %lld, \"%s\", %d, \"%s\")\n", slot.Get(), pszName, xuid, pszNetworkID, unk1, pRejectReason->Get());
+    // A Function point's context reads the call by index, `this` being 0.
+    const CCommand *pArgs = ctx.GetArg<const CCommand *>(2);
 
-    // A hook on a function that returns something returns the value alongside
-    // the action. With Override the original still runs but the value below is
-    // what the caller gets -- here: refuse the connection and hand back the
-    // reason. Try it by connecting with "sample_rejected" as your name.
-    if (!V_strcmp(pszName, "sample_rejected"))
-    {
-        pRejectReason->Insert(0, "Rejected by the sample plugin.");
-        return { KHook::Action::Override, false };
-    }
-
-    // Ignore with a value still returns whatever the original returns -- the
-    // value passed here is discarded. Only Supersede/Override make it count.
-    return { KHook::Action::Ignore, true };
-}
-
-KHook::Return<void> SamplePlugin::Hook_ClientCommand(ISource2GameClients* pThis, CPlayerSlot slot, const CCommand& args)
-{
     // Supersede blocks the original entirely -- the engine never sees this
     // command. Use it to take a command over, not to "handle it as well".
-    if (!V_strcmp(args.Arg(0), "sample_blocked"))
+    if (pArgs && !V_strcmp(pArgs->Arg(0), "sample_blocked"))
     {
-        SOURCE2MOD_LOG(this, "Swallowing \"sample_blocked\" -- the engine will never see it.\n");
-        return { KHook::Action::Supersede };
+        SOURCE2MOD_LOG(this, "Swallowing \"sample_blocked\" from slot %d -- the engine will never see it.\n", ctx.GetArg<int>(1));
+        return Action::Supersede;
     }
 
     // Ignore says "I did nothing": the original runs, and so does whatever else
     // is hooked here. The right answer for a hook that only looks.
-    return { KHook::Action::Ignore };
+    return Action::Ignore;
 }
 
 /* ============================================================================
@@ -835,27 +823,64 @@ void SamplePlugin::SetupSounds()
  *   8. Game functions
  *
  *   Game functions no interface exposes. The common ones -- TakeDamage,
- *   CanAcquire, PostThink, the movement and jump functions, ... -- the core
- *   hooks for you: ISource2ModGameHooks, resolved from the core's own gamedata,
- *   so a plugin never touches a signature and survives an engine update with
- *   a core update. Anything else is hooked and called by signature.
+ *   CanAcquire, PostThink, the movement and jump functions, ... -- are typed
+ *   hook points (HookPoint::TakeDamage, ...), resolved from the core's own
+ *   gamedata, so a plugin never touches a signature and survives an engine
+ *   update with a core update. Any other function is HookPoint::Function(fn),
+ *   fn from a gamedata entry, an address, a signature -- and called the same
+ *   way.
  *
  * ========================================================================== */
 
 void SamplePlugin::SetupGameFunctions()
 {
-    // A method as the handler: SOURCE2MOD_MEMBER (SourceHook's SH_MEMBER). The
-    // same one handed to UnhookTakeDamage() takes it off again; a lambda goes
-    // by the id HookTakeDamage() returns. false = Pre, before the game's code.
-    g_pSource2ModGameHooks->HookTakeDamage(SOURCE2MOD_MEMBER(this, &SamplePlugin::OnTakeDamage), false);
+    // A method as the handler: SOURCE2MOD_MEMBER (SourceHook's SH_MEMBER).
+    // false = Pre, before the game's code. HookTarget::All() is every entity;
+    // HookTarget::Instance(pawn) would be one pawn, HookTarget::Class("CCSPlayerPawn")
+    // every player pawn.
+    g_pSource2ModHooks->Hook(HookPoint::TakeDamage, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnTakeDamage), false);
 
     // A lambda, Post: runs after the game's PostThink, for every pawn every
     // tick -- do as little as possible here. A handler of a function without
     // a return value answers the action alone.
-    g_pSource2ModGameHooks->HookPostThink([](PostThinkContext& ctx, bool post) -> Action
+    g_pSource2ModHooks->Hook(HookPoint::PostThink, HookTarget::All(), [](PostThinkContext& ctx, bool post) -> HookReturn<void>
     {
         return Action::Ignore;
     }, true);
+
+    // Any other function: an ISource2ModFunction says where it is and what it
+    // takes, HookPoint::Function(fn) hooks it. One per way of getting it.
+    //
+    // 1. A gamedata entry with a "function" object (the core's or one you
+    //    added): Find() and nothing else -- the types come from the gamedata.
+    if (ISource2ModFunction *pSwitchTeam = g_pSource2ModFunctions->Find("CCSPlayerController::SwitchTeam"))
+        g_pSource2ModHooks->Hook(HookPoint::Function(pSwitchTeam), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnSwitchTeam));
+
+    // 2. An address Source2Mod already resolved (ISource2ModAddresses), with
+    //    the types spelled out: a method -- `this` first -- ...
+    static const Source2ModType kGiveNamedItem[] = { Source2ModType::Pointer, Source2ModType::String, Source2ModType::Int32,
+                                                     Source2ModType::Pointer, Source2ModType::Bool, Source2ModType::Pointer };
+    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->Create(g_PluginID, reinterpret_cast<void *>(ADDR_GIVE_NAMED_ITEM()),
+                                                                         nullptr, -1, true, Source2ModType::Entity, kGiveNamedItem, 6);
+    g_pSource2ModHooks->Hook(HookPoint::Function(pGiveNamedItem), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnGiveNamedItem));
+
+    //    ... and a free function, whose "object" for a target is its first
+    //    argument.
+    static const Source2ModType kUtilRemove[] = { Source2ModType::Entity };
+    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->Create(g_PluginID, reinterpret_cast<void *>(ADDR_UTIL_REMOVE()),
+                                                                      nullptr, -1, false, Source2ModType::Void, kUtilRemove, 1);
+    g_pSource2ModHooks->Hook(HookPoint::Function(pUtilRemove), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnUtilRemove));
+
+    // 3. A pattern of your own, hardcoded: WIN_LINUX picks the platform's.
+    //    Only for what nothing else resolves -- it needs a plugin update
+    //    whenever the game moves the function. (FromSymbol, FromVirtualTable
+    //    and FromSignatureRelative are the other ways in.)
+    static const Source2ModType kSnapViewAngles[] = { Source2ModType::Entity, Source2ModType::Pointer };
+    ISource2ModFunction *pSnapViewAngles = g_pSource2ModFunctions->FromSignature(g_PluginID, "server",
+        WIN_LINUX("48 89 7C 24 ? 55 48 8B EC 48 81 EC ? ? ? ? 48 8B F9 48 8D 4D ? E8 ? ? ? ? F2 0F 10 87 C8 0B 00 00",
+                  "55 48 89 E5 41 57 49 89 FF 48 89 F7 41 56 41 55 41 54 53 48 81 EC ? ? ? ? E8"),
+        FunctionTypes{ Source2ModType::Void, kSnapViewAngles, 2, true });
+    g_pSource2ModHooks->Hook(HookPoint::Function(pSnapViewAngles), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnSnapViewAngles));
 
     // Calling. An address and a function pointer type are all it takes.
     g_pSource2ModCommands->RegisterConCommand("sample_swap", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
@@ -889,60 +914,67 @@ void SamplePlugin::SetupGameFunctions()
     });
 }
 
-// The raw KHooks by signature (KHOOK_MEMBER / KHOOK_FUNCTION in plugin.h,
-// one per way of getting the address).
+// The Function points above. A FunctionContext reads the call by index --
+// `this` is 0 for a method -- and the answer is the same Ignore / Override /
+// Supersede, with SetReturn() for the value.
 
-// 1. ISource2ModAddresses, the virtual getter: every item a player is given --
-// sample_give below, buying, a round's loadout. Pre.
-KHook::Return<CBasePlayerWeapon*> SamplePlugin::Hook_GiveNamedItem(CCSPlayer_ItemServices* pThis, const char* pszItem, int nSubType, CEconItemView* pScriptItem, bool bForce, void* a6)
+// 2. The address, a method: every item a player is given -- sample_give
+// below, buying, a round's loadout. Pre.
+HookReturn<void> SamplePlugin::OnGiveNamedItem(FunctionContext& ctx, bool post)
 {
+    const char *pszItem = ctx.GetArg<const char *>(1);
     SOURCE2MOD_LOG(this, "GiveNamedItem: %s\n", pszItem ? pszItem : "?");
 
-    // { KHook::Action::Supersede, nullptr } would give nothing -- the caller
-    // gets no weapon back.
-    return { KHook::Action::Ignore, nullptr };
+    // ctx.SetReturn<CBasePlayerWeapon *>(nullptr) + Supersede would give
+    // nothing -- the caller gets no weapon back.
+    return Action::Ignore;
 }
 
-// 1. ISource2ModAddresses, the ADDR_* macro, on a free function: every entity
-// the game removes. That is a lot of them, so it only looks at weapons.
-KHook::Return<void> SamplePlugin::Hook_UtilRemove(CEntityInstance* pEntity)
+// 2. The address, a free function: every entity the game removes. That is a
+// lot of them, so it only looks at weapons.
+HookReturn<void> SamplePlugin::OnUtilRemove(FunctionContext& ctx, bool post)
 {
+    CEntityInstance *pEntity = ctx.GetArg<CEntityInstance *>(0);
     if (pEntity && !V_strncmp(pEntity->GetClassname(), "weapon_", 7))
         SOURCE2MOD_LOG(this, "UTIL_Remove: %s\n", pEntity->GetClassname());
 
-    return { KHook::Action::Ignore };
+    return Action::Ignore;
 }
 
 // 3. The hardcoded pattern: a pawn's view snapped to new angles -- a
 // teleport with angles, a respawn. Changing *pAngles here changes where it
 // looks.
-KHook::Return<void> SamplePlugin::Hook_SnapViewAngles(CBasePlayerPawn* pThis, QAngle* pAngles)
+HookReturn<void> SamplePlugin::OnSnapViewAngles(FunctionContext& ctx, bool post)
 {
     // Bots have their views snapped all the time; only players are worth a
     // log line.
-    auto *pController = pThis ? static_cast<CCSPlayerController *>(pThis->m_hController().Get()) : nullptr;
+    auto *pPawn = ctx.GetArg<CBasePlayerPawn *>(0);
+    auto *pController = pPawn ? static_cast<CCSPlayerController *>(pPawn->m_hController().Get()) : nullptr;
     if (!pController || pController->IsBot())
-        return { KHook::Action::Ignore };
+        return Action::Ignore;
 
-    if (pAngles)
+    if (auto *pAngles = ctx.GetArg<QAngle *>(1))
         SOURCE2MOD_LOG(this, "SnapViewAngles: %.1f %.1f %.1f\n", pAngles->x, pAngles->y, pAngles->z);
 
-    return { KHook::Action::Ignore };
+    return Action::Ignore;
 }
 
-// 2. The gamedata entry: every team switch, the one sample_swap makes above
+// 1. The gamedata entry: every team switch, the one sample_swap makes above
 // included. Pre, so the player is still on the old team here.
-KHook::Return<void> SamplePlugin::Hook_SwitchTeam(CCSPlayerController* pThis, int nTeam)
+HookReturn<void> SamplePlugin::OnSwitchTeam(FunctionContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "SwitchTeam: %s %d -> %d\n", pThis ? pThis->GetPlayerName() : "?", pThis ? pThis->m_iTeamNum() : -1, nTeam);
+    auto *pController = ctx.GetArg<CCSPlayerController *>(0);
+    const int nTeam = ctx.GetArg<int>(1);
+    SOURCE2MOD_LOG(this, "SwitchTeam: %s %d -> %d\n", pController ? pController->GetPlayerName() : "?",
+                   pController ? pController->m_iTeamNum() : -1, nTeam);
 
-    // { KHook::Action::Supersede } would keep the player where they are; the
-    // original with other arguments is KHook::Recall(...), and the original
-    // from the middle of the handler m_hSwitchTeam.CallOriginal(pThis, nTeam).
-    return { KHook::Action::Ignore };
+    // Supersede would keep the player where they are; ctx.SetArg(1, 3) +
+    // Override runs the game's code with team 3 instead; ctx.CallOriginal()
+    // runs it from the middle of the handler.
+    return Action::Ignore;
 }
 
-GameHookReturn<TakeDamageContext::Return> SamplePlugin::OnTakeDamage(TakeDamageContext& ctx, bool post)
+HookReturn<TakeDamageContext::Return> SamplePlugin::OnTakeDamage(TakeDamageContext& ctx, bool post)
 {
     // The context holds the call: the entity taking damage, the damage info,
     // the result, and for a function with a return value ctx.result.
