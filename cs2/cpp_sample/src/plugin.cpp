@@ -480,7 +480,7 @@ void SamplePlugin::SetupGameEvents()
             return;
         }
 
-        IGameEventManager2 *pEventManager = g_Source2ModAPI->GetGameEventManager();
+        IGameEventManager2 *pEventManager = g_pSource2ModAPI->GetGameEventManager();
 
         IGameEvent *pEvent = pEventManager->CreateEvent("show_survival_respawn_status", true);
         if (!pEvent)
@@ -1286,7 +1286,6 @@ void SamplePlugin::SetupTransmit()
  *
  * ========================================================================== */
 
-static ISource2ModNatives *g_pNatives = nullptr;
 static Source2ModHandleType g_CounterType = 0;
 
 // Sample_Add(int a, int b): params[0] is the count, the arguments follow.
@@ -1301,7 +1300,7 @@ static cell_t Native_Echo(SourcePawn::IPluginContext *ctx, const cell_t *params)
 {
     char szBuffer[256];
     size_t written = 0;
-    if (!g_pNatives->FormatString(ctx, params, 3, szBuffer, sizeof(szBuffer), &written))
+    if (!g_pSource2ModNatives->FormatString(ctx, params, 3, szBuffer, sizeof(szBuffer), &written))
         return 0;   // the error is reported to the script already
 
     ctx->StringToLocalUTF8(params[1], params[2], szBuffer, &written);
@@ -1312,12 +1311,12 @@ static cell_t Native_Echo(SourcePawn::IPluginContext *ctx, const cell_t *params)
 // delete / CloseHandle, or when the script unloads.
 static cell_t Native_CreateCounter(SourcePawn::IPluginContext *ctx, const cell_t *params)
 {
-    return g_pNatives->CreateHandle(g_CounterType, new int(params[1]), ctx);
+    return g_pSource2ModNatives->CreateHandle(g_CounterType, new int(params[1]), ctx);
 }
 
 static cell_t Native_Increment(SourcePawn::IPluginContext *ctx, const cell_t *params)
 {
-    int *pCounter = static_cast<int *>(g_pNatives->ReadHandle(ctx, params[1], g_CounterType));
+    int *pCounter = static_cast<int *>(g_pSource2ModNatives->ReadHandle(ctx, params[1], g_CounterType));
     return pCounter ? ++*pCounter : 0;
 }
 
@@ -1331,20 +1330,21 @@ static const sp_nativeinfo_t g_SampleNatives[] = {
 
 void SamplePlugin::SetupScriptNatives()
 {
-    g_pNatives = (ISource2ModNatives *)g_Source2ModAPI->Source2ModFactory(SOURCE2MOD_NATIVES_INTERFACE, nullptr, nullptr);
-    if (!g_pNatives)
+    // SOURCE2MOD_SAVEVARS() filled g_pSource2ModNatives; null on a core
+    // without script support.
+    if (!g_pSource2ModNatives)
     {
         SOURCE2MOD_LOG(this, "No " SOURCE2MOD_NATIVES_INTERFACE " in this core, no script natives.\n");
         return;
     }
 
-    g_CounterType = g_pNatives->CreateHandleType(g_PluginID, "SampleCounter", [](void *object)
+    g_CounterType = g_pSource2ModNatives->CreateHandleType(g_PluginID, "SampleCounter", [](void *object)
     {
         delete static_cast<int *>(object);
     });
 
-    g_pNatives->AddNatives(g_PluginID, g_SampleNatives);
-    g_pNatives->RegisterLibrary(g_PluginID, "cpp_sample");
+    g_pSource2ModNatives->AddNatives(g_PluginID, g_SampleNatives);
+    g_pSource2ModNatives->RegisterLibrary(g_PluginID, "cpp_sample");
 }
 
 /* ============================================================================
