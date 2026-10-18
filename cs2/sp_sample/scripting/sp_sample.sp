@@ -117,7 +117,7 @@ CCSPlayerController CallerOf(Source2ModCommandContext context)
 void Reply(Source2ModCommandContext context, const char[] format, any ...)
 {
 	char buffer[512];
-	Source2ModApi.FormatArgs(buffer, sizeof(buffer), format, 3);
+	Source2ModApi.Format(buffer, sizeof(buffer), format, ...);
 
 	CCSPlayerController caller = CallerOf(context);
 	if (caller != NULL_ENTITY)
@@ -331,8 +331,8 @@ void SetupCommands()
 	// Listening in on a command somebody else owns -- the game's, another
 	// plugin's. Pre (post = false) may answer with Action_Supersede to stop
 	// the command from running at all; post only watches.
-	Source2ModCommands.RegisterConListener("jointeam", Listen_JoinTeamPre, false);
-	Source2ModCommands.RegisterConListener("jointeam", Listen_JoinTeamPost, true);
+	Source2ModCommands.HookConCommand("jointeam", Listen_JoinTeamPre, false);
+	Source2ModCommands.HookConCommand("jointeam", Listen_JoinTeamPost, true);
 }
 
 public void Cmd_Command(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
@@ -992,6 +992,7 @@ public Source2ModAction OnTakeDamage(TakeDamageContext ctx, bool post, int &resu
 		ctx.entity.GetClassname(classname, sizeof(classname));
 
 	CTakeDamageInfo info = ctx.info;
+	int hitgroup = info.GetHitGroup();
 	Source2ModApi.Log("TakeDamage: %s, %.1f damage", classname, info.m_flDamage);
 
 	// Changing an argument: this is a Pre handler, so the game runs after it,
@@ -1522,7 +1523,7 @@ public void OnLibraryRemoved(const char[] name)
 void ReplyToSlot(int slot, const char[] format, any ...)
 {
 	char buffer[512];
-	Source2ModApi.FormatArgs(buffer, sizeof(buffer), format, 3);
+	Source2ModApi.Format(buffer, sizeof(buffer), format, ...);
 
 	if (slot < 0)
 	{

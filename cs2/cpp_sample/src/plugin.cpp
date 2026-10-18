@@ -388,7 +388,7 @@ void SamplePlugin::SetupCommands()
     // Listening in on a command somebody else owns -- the game's, another
     // plugin's. Pre (post = false) may answer with Action::Supersede to stop
     // the command from running at all; post only watches.
-    g_pSource2ModCommands->RegisterConListener("jointeam", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post) -> Action
+    g_pSource2ModCommands->HookConCommand("jointeam", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post) -> Action
     {
         // "jointeam 1" is spectator. Refusing it here is the whole of a
         // "no spectators" plugin.
@@ -401,7 +401,7 @@ void SamplePlugin::SetupCommands()
         return Action::Ignore;
     }, false);
 
-    g_pSource2ModCommands->RegisterConListener("jointeam", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post) -> Action
+    g_pSource2ModCommands->HookConCommand("jointeam", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post) -> Action
     {
         SOURCE2MOD_LOG(&g_Plugin, "Slot %d ran \"%s\"\n", context.GetPlayerSlot().Get(), args.GetCommandString());
         return Action::Ignore;
