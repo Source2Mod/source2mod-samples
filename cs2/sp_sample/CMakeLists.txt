@@ -4,7 +4,8 @@ project(sp_sample NONE)
 # The SDK is resolved from the environment, the same way cpp_sample resolves
 # it: SOURCE2MOD_SDK. Its SdkScripting.cmake gives the include set
 # (SOURCE2MOD_SCRIPTING_INCLUDE) and finds spcomp (SOURCE2MOD_SPCOMP: SPCOMP,
-# else the PATH).
+# else the SDK's own copy, fetched once from a Source2Mod release, else the
+# PATH).
 if (DEFINED ENV{SOURCE2MOD_SDK} AND NOT "$ENV{SOURCE2MOD_SDK}" STREQUAL "")
     file(TO_CMAKE_PATH "$ENV{SOURCE2MOD_SDK}" SOURCE2MOD_SDK)
 else ()
