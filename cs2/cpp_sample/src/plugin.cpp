@@ -2022,25 +2022,21 @@ void SamplePlugin::SetupScripts()
  *
  * ========================================================================== */
 
-// Comments are allowed; they stay in the example and the first config.json.
-static const char *s_pszConfigDefaults = R"json({
-    // In front of every sample_config reply.
-    "Prefix": "[C++ Sample]",
-    "Feature": {
-        "Enabled": true,
-        // 0 or more; OnConfigValidate() refuses less.
-        "Strength": 2.5
-    },
-    // An array or an empty object is the admin's to fill: not merged.
-    "Admins": []
-}
-)json";
-
 void SamplePlugin::OnDeclareConfigs(ISource2ModConfigDeclarations *configs)
 {
+    // The defaults key by key; "/a/b" is a member of a nested object. The
+    // comments go into config.example.json and the first config.json. The
+    // same can be written as one JSON text (comments allowed) and passed to
+    // Add() as it is.
+    Source2ModConfigDefaults defaults;
+    defaults.Add("Prefix", "[C++ Sample]", "In front of every sample_config reply.")
+            .Add("/Feature/Enabled", true)
+            .Add("/Feature/Strength", 2.5, "0 or more; OnConfigValidate() refuses less.")
+            .AddJSON("Admins", "[]", "An array or an empty object is the admin's to fill: not merged.");
+
     // configs/C++ Sample/config.json. More configs are more Add() calls; one
     // for later (say, per map) is g_pSource2ModConfigs->Register().
-    configs->Add("config", s_pszConfigDefaults);
+    configs->Add("config", defaults.Json());
 }
 
 bool SamplePlugin::OnConfigValidate(ISource2ModConfig *config, const ISource2ModJSONValue *root, char *error, size_t maxlen)

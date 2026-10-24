@@ -2233,19 +2233,16 @@ int g_ConfigAdmins;
 
 void SetupConfigs()
 {
-	// Comments are allowed; they stay in the example and the first config.json.
-	g_Config = Source2ModConfig.Register("config",
-		"{\n" ...
-		"    // In front of every sp_config reply.\n" ...
-		"    \"Prefix\": \"[SP Sample]\",\n" ...
-		"    \"Feature\": {\n" ...
-		"        \"Enabled\": true,\n" ...
-		"        \"Strength\": 2.5\n" ...
-		"    },\n" ...
-		"    // An array or an empty object is the admin's to fill: not merged.\n" ...
-		"    \"Admins\": []\n" ...
-		"}\n",
-		OnSampleConfig);
+	// The defaults key by key; "/a/b" is a member of a nested object. The
+	// comments go into config.example.json and the first config.json. The
+	// same can be one JSON text: Source2ModConfig.Register(name, text, callback).
+	Source2ModConfigDefaults defaults = new Source2ModConfigDefaults();
+	defaults.AddString("Prefix", "[SP Sample]", "In front of every sp_config reply.");
+	defaults.AddBool("/Feature/Enabled", true);
+	defaults.AddFloat("/Feature/Strength", 2.5, "0 or more.");
+	defaults.AddJSON("Admins", "[]", "An array or an empty object is the admin's to fill: not merged.");
+	g_Config = defaults.Register("config", OnSampleConfig);
+	delete defaults;
 
 	Source2ModCommands.RegisterConCommand("sp_config", Cmd_Config);
 	Source2ModCommands.RegisterConCommand("sp_config_toggle", Cmd_ConfigToggle, "sp_sample.admin");
