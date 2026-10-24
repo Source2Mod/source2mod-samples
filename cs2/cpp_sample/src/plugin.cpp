@@ -159,6 +159,11 @@ bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t ma
     // (ISource2ModHooks, sections 5 and 8).
     api->AddListener(this, this);
 
+    // Section 20: config.json is read (and created from the defaults when it
+    // is missing) right here, so everything below can use its values.
+    if (!g_pSource2ModConfigs || !g_pSource2ModConfigs->AddListener(this, this, error, maxlen))
+        return false;
+
     SetupConVars();
     SetupCommands();
     SetupGameEvents();
@@ -177,6 +182,7 @@ bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t ma
     SetupMySQL();
     SetupMenus();
     SetupScripts();
+    SetupConfigs();
 
     return true;
 }
@@ -2002,4 +2008,89 @@ void SamplePlugin::SetupScripts()
         if (!SCRIPTS_FIRE_INPUT("cpp_sample_script", "ping"))
             Reply(context, "Run sample_script first.");
     });
+}
+
+/* ============================================================================
+ *
+ *   20. Configs
+ *
+ *   A JSON config the plugin declares once, with its defaults: Source2Mod
+ *   writes configs/C++ Sample/config.example.json, creates config.json from
+ *   the defaults when it is missing, and hands over the admin's file merged
+ *   over the defaults -- every key below is always there. When the file
+ *   changes (or "s2m config reload" runs) OnConfigChanged() is called again.
+ *
+ * ========================================================================== */
+
+// Comments are allowed; they stay in the example and the first config.json.
+static const char *s_pszConfigDefaults = R"json({
+    // In front of every sample_config reply.
+    "Prefix": "[C++ Sample]",
+    "Feature": {
+        "Enabled": true,
+        // 0 or more; OnConfigValidate() refuses less.
+        "Strength": 2.5
+    },
+    // An array or an empty object is the admin's to fill: not merged.
+    "Admins": []
+}
+)json";
+
+void SamplePlugin::OnDeclareConfigs(ISource2ModConfigDeclarations *configs)
+{
+    // configs/C++ Sample/config.json. More configs are more Add() calls; one
+    // for later (say, per map) is g_pSource2ModConfigs->Register().
+    configs->Add("config", s_pszConfigDefaults);
+}
+
+bool SamplePlugin::OnConfigValidate(ISource2ModConfig *config, const ISource2ModJSONValue *root, char *error, size_t maxlen)
+{
+    // A refused file keeps the previous one live (and fails the first load).
+    if (root->Get("Feature")->GetFloat("Strength") < 0.0f)
+    {
+        snprintf(error, maxlen, "Feature.Strength must not be negative");
+        return false;
+    }
+    return true;
+}
+
+void SamplePlugin::OnConfigChanged(ISource2ModConfig *config, ConfigChange reason)
+{
+    const ISource2ModJSONValue *root = config->Root();
+    m_sConfigPrefix = root->GetString("Prefix");
+    m_bFeatureEnabled = root->Get("Feature")->GetBool("Enabled");
+    m_flFeatureStrength = root->Get("Feature")->GetFloat("Strength");
+    m_nConfigAdmins = root->Get("Admins")->Count();
+
+    SOURCE2MOD_LOG(this, "config.json %s: feature %s, strength %.1f, %d admin(s)\n",
+                   reason == ConfigChange::Loaded ? "loaded" : "reloaded", m_bFeatureEnabled ? "on" : "off",
+                   m_flFeatureStrength, m_nConfigAdmins);
+}
+
+void SamplePlugin::SetupConfigs()
+{
+    // sample_config: what config.json holds now.
+    g_pSource2ModCommands->RegisterConCommand("sample_config", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
+    {
+        ISource2ModConfig *config = PLUGIN_CONFIG("config");
+        Reply(context, "%s feature %s, strength %.1f, %d admin(s) -- %s (generation %u)", g_Plugin.m_sConfigPrefix.c_str(),
+              g_Plugin.m_bFeatureEnabled ? "on" : "off", g_Plugin.m_flFeatureStrength, g_Plugin.m_nConfigAdmins,
+              config->GetPath(), config->GetGeneration());
+    });
+
+    // sample_config_toggle: flips Feature.Enabled in memory and writes the
+    // file (the old one is kept as config.json.bak). A Set does not call
+    // OnConfigChanged() -- the plugin made the change itself.
+    g_pSource2ModCommands->RegisterConCommand("sample_config_toggle", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
+    {
+        ISource2ModConfig *config = PLUGIN_CONFIG("config");
+        g_Plugin.m_bFeatureEnabled = !g_Plugin.m_bFeatureEnabled;
+        config->SetBool("/Feature/Enabled", g_Plugin.m_bFeatureEnabled);
+
+        char error[256];
+        if (config->Save(error, sizeof(error)))
+            Reply(context, "Feature %s, saved.", g_Plugin.m_bFeatureEnabled ? "on" : "off");
+        else
+            Reply(context, "Feature %s, not saved: %s", g_Plugin.m_bFeatureEnabled ? "on" : "off", error);
+    }, "sample.admin");
 }

@@ -61,6 +61,8 @@
  *  17. MySQL            serverless query with parameters, connection, transaction
  *  18. Menus, custom HUD  a center HTML menu, clicks on a custom HUD layout
  *  19. Scripts          cs_script source run from the plugin, messages both ways
+ *  20. Configs          a JSON config registered with its defaults, reloaded live,
+ *                       a value changed and saved
  *
  * The commands are cpp_sample's with "sp_" in place of "sample_", the convars
  * "sp_sample_..." -- both plugins can be loaded side by side.
@@ -193,6 +195,7 @@ public void OnPluginStart()
 	SetupMySQL();
 	SetupMenus();
 	SetupScripts();
+	SetupConfigs();
 
 	Source2ModApi.Log("All hooks started!");
 }
@@ -2205,4 +2208,83 @@ public void Cmd_ScriptPing(Source2ModCommandContext context, Source2ModCommandAr
 {
 	if (!Source2ModScripts.FireInput("sp_sample_script", "ping"))
 		Reply(context, "Run sp_script first.");
+}
+
+/* ============================================================================
+ *
+ *   20. Configs
+ *
+ *   A JSON config registered once, with its defaults: Source2Mod writes
+ *   configs/SourcePawn Sample/config.example.json, creates config.json from
+ *   the defaults when it is missing, and Root() reads the admin's file merged
+ *   over the defaults -- every key below is always there. OnSampleConfig()
+ *   runs right away and again whenever the file changes (or "s2m config
+ *   reload" runs). The JSON values are the current document's: read them in
+ *   the callback, do not keep them.
+ *
+ * ========================================================================== */
+
+Source2ModConfig g_Config;
+
+char g_ConfigPrefix[64];
+bool g_FeatureEnabled;
+float g_FeatureStrength;
+int g_ConfigAdmins;
+
+void SetupConfigs()
+{
+	// Comments are allowed; they stay in the example and the first config.json.
+	g_Config = Source2ModConfig.Register("config",
+		"{\n" ...
+		"    // In front of every sp_config reply.\n" ...
+		"    \"Prefix\": \"[SP Sample]\",\n" ...
+		"    \"Feature\": {\n" ...
+		"        \"Enabled\": true,\n" ...
+		"        \"Strength\": 2.5\n" ...
+		"    },\n" ...
+		"    // An array or an empty object is the admin's to fill: not merged.\n" ...
+		"    \"Admins\": []\n" ...
+		"}\n",
+		OnSampleConfig);
+
+	Source2ModCommands.RegisterConCommand("sp_config", Cmd_Config);
+	Source2ModCommands.RegisterConCommand("sp_config_toggle", Cmd_ConfigToggle, "sp_sample.admin");
+}
+
+public void OnSampleConfig(Source2ModConfig config, ConfigChange reason)
+{
+	ISource2ModJSONValue root = config.Root();
+	ISource2ModJSONValue feature = root.Get("Feature");
+
+	root.GetString("Prefix", g_ConfigPrefix, sizeof(g_ConfigPrefix));
+	g_FeatureEnabled = feature.GetBool("Enabled");
+	g_FeatureStrength = feature.GetFloat("Strength");
+	g_ConfigAdmins = root.Get("Admins").Count();
+
+	Source2ModApi.Log("config.json %s: feature %s, strength %.1f, %d admin(s)",
+	                  reason == ConfigChange_Loaded ? "loaded" : "reloaded", g_FeatureEnabled ? "on" : "off",
+	                  g_FeatureStrength, g_ConfigAdmins);
+}
+
+// sp_config: what config.json holds now.
+public void Cmd_Config(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
+{
+	char path[PLATFORM_MAX_PATH];
+	g_Config.GetPath(path, sizeof(path));
+	Reply(context, "%s feature %s, strength %.1f, %d admin(s) -- %s (generation %d)", g_ConfigPrefix,
+	      g_FeatureEnabled ? "on" : "off", g_FeatureStrength, g_ConfigAdmins, path, g_Config.Generation);
+}
+
+// sp_config_toggle: flips Feature.Enabled in memory and writes the file (the
+// old one is kept as config.json.bak). A Set does not run OnSampleConfig().
+public void Cmd_ConfigToggle(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
+{
+	g_FeatureEnabled = !g_FeatureEnabled;
+	g_Config.SetBool("/Feature/Enabled", g_FeatureEnabled);
+
+	char error[256];
+	if (g_Config.Save(error, sizeof(error)))
+		Reply(context, "Feature %s, saved.", g_FeatureEnabled ? "on" : "off");
+	else
+		Reply(context, "Feature %s, not saved: %s", g_FeatureEnabled ? "on" : "off", error);
 }

@@ -6,7 +6,7 @@ section for section the same:
 - [`cs2/cpp_sample`](cs2/cpp_sample) -- a C++ plugin: lifecycle, ConVars,
   commands, game events, net messages, sounds, game hooks, entities, timers,
   transmit, natives for scripts, paths and permissions, traces, game systems,
-  JSON/HTTP, SQL, menus and the custom HUD, cs_script.
+  JSON/HTTP, SQL, menus and the custom HUD, cs_script, a JSON config.
 - [`cs2/sp_sample`](cs2/sp_sample) -- the same plugin in SourcePawn, through
   the script API.
 

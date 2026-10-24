@@ -61,6 +61,8 @@
  *  17. MySQL            serverless query with parameters, connection, transaction
  *  18. Menus, custom HUD  a center HTML menu, clicks on a custom HUD layout
  *  19. Scripts          cs_script source run from the plugin, messages both ways
+ *  20. Configs          a JSON config declared with its defaults, reloaded live,
+ *                       a value changed and saved
  *
  * ../sp_sample is the same plugin in SourcePawn: the same sections, numbered
  * the same, doing the same things through the script API.
@@ -86,6 +88,7 @@
 // has to be in scope for its interface name.
 #include "source2mod/ISource2ModAddresses.h"
 #include "source2mod/ISource2ModCommands.h"
+#include "source2mod/ISource2ModConfigs.h"
 #include "source2mod/ISource2ModConVars.h"
 #include "source2mod/ISource2ModCustomHud.h"
 #include "source2mod/ISource2ModEntities.h"
@@ -128,7 +131,8 @@ SOURCE2MOD_GLOBALVARS();
 class SamplePlugin final : public ISource2ModPlugin,
                            public ISource2ModListener,
                            public IEntityListener,
-                           public IEntityOutputListener
+                           public IEntityOutputListener,
+                           public ISource2ModConfigListener
 {
 public:
 	bool Load(PluginId id, ISource2ModAPI *api, char *error, size_t maxlen, bool late) override;
@@ -150,6 +154,11 @@ public: // 5. core events -- ISource2ModHooks handlers: engine callbacks, a clie
 	HookReturn<void> OnClientDisconnect(ClientDisconnectContext &ctx, bool post);
 	HookReturn<void> OnGameFrame(GameFrameContext &ctx, bool post);
 	HookReturn<void> OnClientCommand(FunctionContext &ctx, bool post);
+
+public: // 20. configs -- ISource2ModConfigListener: configs/C++ Sample/config.json
+	void OnDeclareConfigs(ISource2ModConfigDeclarations *configs) override;
+	bool OnConfigValidate(ISource2ModConfig *config, const ISource2ModJSONValue *root, char *error, size_t maxlen) override;
+	void OnConfigChanged(ISource2ModConfig *config, ConfigChange reason) override;
 
 public: // 8. game functions -- a typed point, and any function by gamedata, address or signature
 	HookReturn<TakeDamageContext::Return> OnTakeDamage(TakeDamageContext &ctx, bool post);
@@ -177,6 +186,7 @@ private: // one per section of plugin.cpp, called from Load() in this order
 	void SetupMySQL();
 	void SetupMenus();
 	void SetupScripts();
+	void SetupConfigs();
 
 private:
 	// 6. net messages -- one bit per player slot, the same layout the hooks get
@@ -187,6 +197,13 @@ private:
 	// 10. timers -- a Timer* is only good while the timer lives; see SetupTimers().
 	Timer *m_pCountdownTimer = nullptr;
 	int m_nCountdown = 0;
+
+	// 20. configs -- copied out of config.json in OnConfigChanged(); the JSON
+	// values themselves are only good until the next reload.
+	std::string m_sConfigPrefix;
+	bool m_bFeatureEnabled = false;
+	float m_flFeatureStrength = 0.0f;
+	int m_nConfigAdmins = 0;
 
 	// 17. MySQL -- made on first use, gone with the plugin.
 	ISource2ModSQLServerless *m_pServerless = nullptr;
