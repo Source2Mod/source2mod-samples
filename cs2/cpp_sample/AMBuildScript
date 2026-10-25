@@ -78,10 +78,6 @@ class MMSPluginConfig(object):
     else:
       self.plugin_name = plugin_metadata['name']
 
-    if builder.options.plugin_alias is not None:
-      self.plugin_alias = builder.options.plugin_alias
-    else:
-      self.plugin_alias = plugin_metadata['alias']
 
     if builder.options.targets:
       target_archs = builder.options.targets.split(',')

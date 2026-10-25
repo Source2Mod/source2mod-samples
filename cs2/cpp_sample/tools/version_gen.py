@@ -3,15 +3,18 @@
 """Generates version_gen.h from plugin-metadata.json.
 
 plugin-metadata.json is the one place a plugin's name, author, description and
-version live; this turns it into the defines plugin.h returns. Both build
+version live; this turns it into the defines the plugin returns. Both build
 systems call in here rather than each formatting the header their own way and
 drifting apart -- CMake runs this as a script, AMBuild imports render() and
 feeds the result to builder.AddOutputFile() so a metadata edit retriggers the
 compile.
 
-A version string may contain {{git-shorthash}}, which is replaced with the
-short hash of the working tree it is generated from, or "0" outside a git
-checkout.
+A version string may contain:
+  {{semver}}         SEMVER from the environment (the release CI sets it),
+                     "Local" otherwise
+  {{github-sha}}     GITHUB_SHA_SHORT from the environment, "Local" otherwise
+  {{git-shorthash}}  the short hash of the working tree it is generated from,
+                     or "0" outside a git checkout
 """
 
 import argparse
@@ -22,15 +25,15 @@ import sys
 
 FIELDS = [
     ('name', 'PLUGIN_NAME'),
-    ('alias', 'PLUGIN_ALIAS'),
     ('display_name', 'PLUGIN_DISPLAY_NAME'),
     ('description', 'PLUGIN_DESCRIPTION'),
     ('author', 'PLUGIN_AUTHOR'),
-    ('url', 'PLUGIN_URL'),
-    ('log_tag', 'PLUGIN_LOGTAG'),
-    ('license', 'PLUGIN_LICENSE'),
     ('version', 'PLUGIN_FULL_VERSION'),
 ]
+
+
+def c_string(value):
+    return '"{}"'.format(value.replace('\\', '\\\\').replace('"', '\\"'))
 
 
 def git_shorthash(path):
@@ -44,12 +47,23 @@ def git_shorthash(path):
     return '0'
 
 
+def env_or_local(name):
+    value = os.environ.get(name, '')
+    return value if value else 'Local'
+
+
 def load(metadata_path):
     with open(metadata_path, 'r', encoding='utf-8') as fp:
         return json.load(fp)
 
 
 def render(metadata, shorthash='0'):
+    tokens = {
+        '{{semver}}': env_or_local('SEMVER'),
+        '{{github-sha}}': env_or_local('GITHUB_SHA_SHORT'),
+        '{{git-shorthash}}': shorthash,
+    }
+
     lines = [
         '/* Generated from plugin-metadata.json -- do not edit. */',
         '',
@@ -61,9 +75,10 @@ def render(metadata, shorthash='0'):
     width = max(len(define) for _, define in FIELDS)
 
     for key, define in FIELDS:
-        value = str(metadata.get(key, '')).replace('{{git-shorthash}}', shorthash)
-        value = value.replace('\\', '\\\\').replace('"', '\\"')
-        lines.append('#define {} "{}"'.format(define.ljust(width), value))
+        value = str(metadata.get(key, ''))
+        for token, replacement in tokens.items():
+            value = value.replace(token, replacement)
+        lines.append('#define {} {}'.format(define.ljust(width), c_string(value)))
 
     lines += ['', '#endif /* _PLUGIN_METADATA_INFORMATION_H_ */', '']
     return '\n'.join(lines)

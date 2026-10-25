@@ -73,7 +73,7 @@
 #include "source2mod/ISource2ModNatives.h"
 
 SamplePlugin g_Plugin;
-SOURCE2MOD_EXPOSE(cpp_sample, g_Plugin);
+SOURCE2MOD_EXPOSE(PLUGIN_NAME, g_Plugin);
 
 /* ============================================================================
  *

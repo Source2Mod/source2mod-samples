@@ -20,14 +20,10 @@ import subprocess
 import sys
 
 FIELDS = [
-    ('name', 'PLUGIN_NAME'),
-    ('alias', 'PLUGIN_ALIAS'),
     ('display_name', 'PLUGIN_DISPLAY_NAME'),
     ('description', 'PLUGIN_DESCRIPTION'),
     ('author', 'PLUGIN_AUTHOR'),
     ('url', 'PLUGIN_URL'),
-    ('log_tag', 'PLUGIN_LOGTAG'),
-    ('license', 'PLUGIN_LICENSE'),
     ('version', 'PLUGIN_FULL_VERSION'),
 ]
 
