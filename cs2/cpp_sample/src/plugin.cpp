@@ -537,11 +537,11 @@ void SamplePlugin::SetupCoreEvents()
     //
     // Engine callbacks take HookTarget::All() only. Pre runs before the
     // engine's own code, post (true) after it.
-    g_pSource2ModHooks->Hook(HookPoint::ClientConnect, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientConnect));
-    g_pSource2ModHooks->Hook(HookPoint::ClientPutInServer, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientPutInServer), true);
-    g_pSource2ModHooks->Hook(HookPoint::ClientSettingsChanged, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientSettingsChanged), true);
-    g_pSource2ModHooks->Hook(HookPoint::ClientDisconnect, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientDisconnect));
-    g_pSource2ModHooks->Hook(HookPoint::GameFrame, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnGameFrame), true);
+    g_pSource2ModHooks->Hook(HookPoint::ClientConnect, HookTarget::All(), { this, &SamplePlugin::OnClientConnect });
+    g_pSource2ModHooks->Hook(HookPoint::ClientPutInServer, HookTarget::All(), { this, &SamplePlugin::OnClientPutInServer }, true);
+    g_pSource2ModHooks->Hook(HookPoint::ClientSettingsChanged, HookTarget::All(), { this, &SamplePlugin::OnClientSettingsChanged }, true);
+    g_pSource2ModHooks->Hook(HookPoint::ClientDisconnect, HookTarget::All(), { this, &SamplePlugin::OnClientDisconnect });
+    g_pSource2ModHooks->Hook(HookPoint::GameFrame, HookTarget::All(), { this, &SamplePlugin::OnGameFrame }, true);
 
     // What has no point of its own is still one call away: HookPoint::Function
     // takes any ISource2ModFunction. Here a virtual of an engine interface --
@@ -554,7 +554,7 @@ void SamplePlugin::SetupCoreEvents()
         FunctionTypes{ Source2ModType::Void, kClientCommand, 3, true });
 
     g_pSource2ModHooks->Hook(HookPoint::Function(pClientCommand), HookTarget::Instance(g_pSource2GameClients),
-                             SOURCE2MOD_MEMBER(this, &SamplePlugin::OnClientCommand));
+                             { this, &SamplePlugin::OnClientCommand });
 }
 
 void SamplePlugin::OnEntitySpawned(CEntityInstance* pEntity)
@@ -840,11 +840,11 @@ void SamplePlugin::SetupSounds()
 
 void SamplePlugin::SetupGameFunctions()
 {
-    // A method as the handler: SOURCE2MOD_MEMBER (SourceHook's SH_MEMBER).
+    // A method as the handler: { this, &Plugin::Method }.
     // false = Pre, before the game's code. HookTarget::All() is every entity;
     // HookTarget::Instance(pawn) would be one pawn, HookTarget::Class("CCSPlayerPawn")
     // every player pawn.
-    g_pSource2ModHooks->Hook(HookPoint::TakeDamage, HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnTakeDamage), false);
+    g_pSource2ModHooks->Hook(HookPoint::TakeDamage, HookTarget::All(), { this, &SamplePlugin::OnTakeDamage }, false);
 
     // A lambda, Post: runs after the game's PostThink, for every pawn every
     // tick -- do as little as possible here. A handler of a function without
@@ -860,7 +860,7 @@ void SamplePlugin::SetupGameFunctions()
     // 1. A gamedata entry with a "function" object (the core's or one you
     //    added): Find() and nothing else -- the types come from the gamedata.
     if (ISource2ModFunction *pSwitchTeam = g_pSource2ModFunctions->Find("CCSPlayerController::SwitchTeam"))
-        g_pSource2ModHooks->Hook(HookPoint::Function(pSwitchTeam), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnSwitchTeam));
+        g_pSource2ModHooks->Hook(HookPoint::Function(pSwitchTeam), HookTarget::All(), { this, &SamplePlugin::OnSwitchTeam });
 
     // 2. An address Source2Mod already resolved (ISource2ModAddresses), with
     //    the types spelled out: a method -- `this` first -- ...
@@ -868,14 +868,14 @@ void SamplePlugin::SetupGameFunctions()
                                                      Source2ModType::Pointer, Source2ModType::Bool, Source2ModType::Pointer };
     ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->Create(g_PluginID, reinterpret_cast<void *>(ADDR_GIVE_NAMED_ITEM()),
                                                                          nullptr, -1, true, Source2ModType::Entity, kGiveNamedItem, 6);
-    g_pSource2ModHooks->Hook(HookPoint::Function(pGiveNamedItem), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnGiveNamedItem));
+    g_pSource2ModHooks->Hook(HookPoint::Function(pGiveNamedItem), HookTarget::All(), { this, &SamplePlugin::OnGiveNamedItem });
 
     //    ... and a free function, whose "object" for a target is its first
     //    argument.
     static const Source2ModType kUtilRemove[] = { Source2ModType::Entity };
     ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->Create(g_PluginID, reinterpret_cast<void *>(ADDR_UTIL_REMOVE()),
                                                                       nullptr, -1, false, Source2ModType::Void, kUtilRemove, 1);
-    g_pSource2ModHooks->Hook(HookPoint::Function(pUtilRemove), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnUtilRemove));
+    g_pSource2ModHooks->Hook(HookPoint::Function(pUtilRemove), HookTarget::All(), { this, &SamplePlugin::OnUtilRemove });
 
     // 3. A pattern of your own, hardcoded: WIN_LINUX picks the platform's.
     //    Only for what nothing else resolves -- it needs a plugin update
@@ -886,7 +886,7 @@ void SamplePlugin::SetupGameFunctions()
         WIN_LINUX("48 89 7C 24 ? 55 48 8B EC 48 81 EC ? ? ? ? 48 8B F9 48 8D 4D ? E8 ? ? ? ? F2 0F 10 87 C8 0B 00 00",
                   "55 48 89 E5 41 57 49 89 FF 48 89 F7 41 56 41 55 41 54 53 48 81 EC ? ? ? ? E8"),
         FunctionTypes{ Source2ModType::Void, kSnapViewAngles, 2, true });
-    g_pSource2ModHooks->Hook(HookPoint::Function(pSnapViewAngles), HookTarget::All(), SOURCE2MOD_MEMBER(this, &SamplePlugin::OnSnapViewAngles));
+    g_pSource2ModHooks->Hook(HookPoint::Function(pSnapViewAngles), HookTarget::All(), { this, &SamplePlugin::OnSnapViewAngles });
 
     // Calling. An address and a function pointer type are all it takes.
     g_pSource2ModCommands->RegisterConCommand("sample_swap", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
