@@ -55,12 +55,12 @@
 #include "engine2/isource2server.h"
 #include "engine2/ivengineserver2.h"
 
-#include "source2mod/schema/entity/classes/CCSPlayerController.h"
-#include "source2mod/schema/entity/classes/CCSPlayerController_InGameMoneyServices.h"
-#include "source2mod/schema/entity/classes/CPlayer_ItemServices.h"
-#include "source2mod/schema/entity/classes/CCSGameRules.h"
-#include "source2mod/schema/entity/classes/CSmokeGrenadeProjectile.h"
-#include "source2mod/schema/entity/classes/CCSCustomHudLayout.h"
+#include "source2mod/sdk/schema/classes/CCSPlayerController.h"
+#include "source2mod/sdk/schema/classes/CCSPlayerController_InGameMoneyServices.h"
+#include "source2mod/sdk/schema/classes/CPlayer_ItemServices.h"
+#include "source2mod/sdk/schema/classes/CCSGameRules.h"
+#include "source2mod/sdk/schema/classes/CSmokeGrenadeProjectile.h"
+#include "source2mod/sdk/schema/classes/CCSCustomHudLayout.h"
 
 // The game's protobufs are part of the SDK: message ids (UM_Shake,
 // clc_VoiceData) and, for anyone who prefers them over reflection, the
