@@ -63,6 +63,8 @@
  *  19. Scripts          cs_script source run from the plugin, messages both ways
  *  20. Configs          a JSON config registered with its defaults, reloaded live,
  *                       a value changed and saved
+ *  21. Clients          the engine client of a slot, asking a client for a ConVar,
+ *                       disconnecting from inside its own command
  *
  * The commands are cpp_sample's with "sp_" in place of "sample_", the convars
  * "sp_sample_..." -- both plugins can be loaded side by side.
@@ -196,6 +198,7 @@ public void OnPluginStart()
 	SetupMenus();
 	SetupScripts();
 	SetupConfigs();
+	SetupClients();
 
 	Source2ModApi.Log("All hooks started!");
 }
@@ -464,7 +467,7 @@ public Source2ModAction Event_PlayerDeathPre(IGameEvent event, bool post, bool &
 
 public Source2ModAction Event_RoundStartPost(IGameEvent event, bool post, bool &dontBroadcast)
 {
-	for (int slot = 0; slot < 64; slot++)
+	for (int slot = 0; slot < MaxClients; slot++)
 	{
 		CCSPlayerController controller = PlayerInSlot(slot);
 		if (controller != NULL_ENTITY)
@@ -803,7 +806,7 @@ public void Cmd_Mute(Source2ModCommandContext context, Source2ModCommandArgs arg
 	Arg1(args, arg, sizeof(arg));
 	int slot = Source2ModUtils.StringToInt(arg);
 
-	CCSPlayerController target = (slot >= 0 && slot < 64) ? PlayerInSlot(slot) : NULL_ENTITY;
+	CCSPlayerController target = (slot >= 0 && slot < MaxClients) ? PlayerInSlot(slot) : NULL_ENTITY;
 	if (target == NULL_ENTITY)
 	{
 		Reply(context, "Nobody in slot %d.", slot);
@@ -1336,7 +1339,7 @@ public void Timer_Countdown(any data)
 	else
 		Source2ModUtils.Copy(message, sizeof(message), "Go!");
 
-	for (int slot = 0; slot < 64; slot++)
+	for (int slot = 0; slot < MaxClients; slot++)
 	{
 		CCSPlayerController controller = PlayerInSlot(slot);
 		if (controller != NULL_ENTITY)
@@ -1394,7 +1397,7 @@ public void Cmd_Hide(Source2ModCommandContext context, Source2ModCommandArgs arg
 	Arg1(args, arg, sizeof(arg));
 	int slot = Source2ModUtils.StringToInt(arg);
 
-	CCSPlayerController target = (slot >= 0 && slot < 64) ? PlayerInSlot(slot) : NULL_ENTITY;
+	CCSPlayerController target = (slot >= 0 && slot < MaxClients) ? PlayerInSlot(slot) : NULL_ENTITY;
 	if (target == NULL_ENTITY)
 	{
 		Reply(context, "Nobody in slot %d.", slot);
@@ -2284,4 +2287,80 @@ public void Cmd_ConfigToggle(Source2ModCommandContext context, Source2ModCommand
 		Reply(context, "Feature %s, saved.", g_FeatureEnabled ? "on" : "off");
 	else
 		Reply(context, "Feature %s, not saved: %s", g_FeatureEnabled ? "on" : "off", error);
+}
+
+/* ============================================================================
+ *
+ *   21. Clients
+ *
+ *   The engine's side of a player. CServerSideClient is a slot looked up
+ *   again on every call, and Source2ModClients works off it, not the
+ *   controller -- so both answer for a client that has no controller (yet)
+ *   and for bots. GetClientConVar reads a userinfo cvar the client sent on
+ *   its own; QueryConVar asks the client's game for any of its ConVars over
+ *   the wire, and the answer comes back later (or Cancelled when it leaves).
+ *
+ * ========================================================================== */
+
+void SetupClients()
+{
+	Source2ModCommands.RegisterConCommand("sp_clients", Cmd_Clients);
+	Source2ModCommands.RegisterConCommand("sp_cvar", Cmd_Cvar);
+	Source2ModCommands.RegisterConCommand("sp_kickme", Cmd_KickMe);
+}
+
+// sp_clients: every slot that has a client, as the engine sees it.
+public void Cmd_Clients(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
+{
+	for (int i = 0; i < MaxClients; i++)
+	{
+		CServerSideClient client = CServerSideClient(CPlayerSlot(i));
+		if (!client.IsValid)
+			continue;
+
+		char name[128], ip[32];
+		client.GetName(name, sizeof(name));
+		client.GetIpAddress(ip, sizeof(ip));
+		bool hasController = CCSPlayerController.FromSlot(CPlayerSlot(i)) != NULL_ENTITY;
+		Reply(context, "%d: %s, signon %d%s%s%s %s", i, name, client.SignonState, client.IsFakePlayer ? ", bot" : "",
+		      client.IsFullyAuthenticated ? ", authorized" : "", hasController ? "" : ", no controller", ip);
+	}
+	Reply(context, "%d in game, %d connected, %d slots.", Source2ModClients.GetClientCount(true),
+	      Source2ModClients.GetClientCount(false), MaxClients);
+}
+
+// sp_cvar <name>: asks the caller's game for one of its ConVars. The command
+// has long returned when the answer arrives, so the reply goes to the slot.
+public void Cmd_Cvar(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
+{
+	CPlayerSlot caller = context.GetPlayerSlot();
+	if (!caller.IsValid() || args.ArgC() < 2)
+	{
+		Reply(context, "Usage (as a player): sp_cvar <name>");
+		return;
+	}
+
+	char name[128];
+	args.Arg(1, name, sizeof(name));
+	if (CServerSideClient(caller).QueryConVar(name, OnCvarAnswer) == -1)
+		Reply(context, "Your client cannot be asked.");
+}
+
+public void OnCvarAnswer(int cookie, CPlayerSlot slot, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any value)
+{
+	static const char results[][] = { "left before answering", "ok", "no such ConVar", "a command, not a ConVar", "protected" };
+
+	char buffer[256];
+	Source2ModApi.Format(buffer, sizeof(buffer), "%s: %s%s%s", cvarName, results[view_as<int>(result) + 1],
+	       result == ConVarQuery_Okay ? " = " : "", cvarValue);
+	CServerSideClient(slot).PrintToChat(buffer);
+}
+
+// sp_kickme: Disconnect runs on the next frame, so it is safe from inside this
+// very client's command.
+public void Cmd_KickMe(Source2ModCommandContext context, Source2ModCommandArgs args, bool post)
+{
+	CPlayerSlot caller = context.GetPlayerSlot();
+	if (caller.IsValid())
+		CServerSideClient(caller).Disconnect(NETWORK_DISCONNECT_KICKED, "sp_kickme");
 }

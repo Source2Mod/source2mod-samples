@@ -63,6 +63,8 @@
  *  19. Scripts          cs_script source run from the plugin, messages both ways
  *  20. Configs          a JSON config declared with its defaults, reloaded live,
  *                       a value changed and saved
+ *  21. Clients          the engine client of a slot, asking a client for a ConVar,
+ *                       disconnecting from inside its own command
  *
  * ../sp_sample is the same plugin in SourcePawn: the same sections, numbered
  * the same, doing the same things through the script API.
@@ -187,6 +189,7 @@ private: // one per section of plugin.cpp, called from Load() in this order
 	void SetupMenus();
 	void SetupScripts();
 	void SetupConfigs();
+	void SetupClients();
 
 private:
 	// 6. net messages -- one bit per player slot, the same layout the hooks get

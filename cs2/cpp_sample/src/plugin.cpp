@@ -54,6 +54,7 @@
 #include "engine2/inetworkserverservice.h"
 #include "engine2/isource2server.h"
 #include "engine2/ivengineserver2.h"
+#include "engine2/serversideclient.h"
 
 #include "source2mod/sdk/schema/classes/CCSPlayerController.h"
 #include "source2mod/sdk/schema/classes/CCSPlayerController_InGameMoneyServices.h"
@@ -125,10 +126,18 @@ static CCSPlayerPawn *AlivePawnOf(const Source2ModCommandContext &context)
     return pPawn;
 }
 
+// The server's player slots (-maxplayers): slots are 0 to MaxClients() - 1.
+// 0 before there is a server.
+static int MaxClients()
+{
+    CGlobalVars *pGlobals = g_pSource2ModAPI->GetGlobalVars();
+    return pGlobals ? pGlobals->maxClients : 0;
+}
+
 template <typename FN>
 static void ForEachPlayer(FN &&fn)
 {
-    for (int i = 0; i < 64; i++)
+    for (int i = 0; i < MaxClients(); i++)
     {
         if (CCSPlayerController *pController = CCSPlayerController::FromSlot(i))
             fn(pController);
@@ -183,6 +192,7 @@ bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t ma
     SetupMenus();
     SetupScripts();
     SetupConfigs();
+    SetupClients();
 
     return true;
 }
@@ -737,7 +747,7 @@ void SamplePlugin::SetupNetMessages()
         }
 
         const int iSlot = atoi(args.Arg(1));
-        CCSPlayerController *pTarget = (iSlot >= 0 && iSlot < 64) ? CCSPlayerController::FromSlot(iSlot) : nullptr;
+        CCSPlayerController *pTarget = (iSlot >= 0 && iSlot < MaxClients()) ? CCSPlayerController::FromSlot(iSlot) : nullptr;
         if (!pTarget)
         {
             Reply(context, "Nobody in slot %d.", iSlot);
@@ -1204,7 +1214,7 @@ void SamplePlugin::SetupTransmit()
         }
 
         const int iSlot = atoi(args.Arg(1));
-        CCSPlayerController *pTarget = (iSlot >= 0 && iSlot < 64) ? CCSPlayerController::FromSlot(iSlot) : nullptr;
+        CCSPlayerController *pTarget = (iSlot >= 0 && iSlot < MaxClients()) ? CCSPlayerController::FromSlot(iSlot) : nullptr;
         if (!pTarget)
         {
             Reply(context, "Nobody in slot %d.", iSlot);
@@ -2089,4 +2099,85 @@ void SamplePlugin::SetupConfigs()
         else
             Reply(context, "Feature %s, not saved: %s", g_Plugin.m_bFeatureEnabled ? "on" : "off", error);
     }, "sample.admin");
+}
+
+/* ============================================================================
+ *
+ *   21. Clients
+ *
+ *   The engine's side of a player. ISource2ModClients works off the slot's
+ *   CServerSideClient, not its controller, so it also answers for a client
+ *   that has no controller (yet) -- one still signing on -- and for bots.
+ *   GetClientConVar reads a userinfo cvar the client sent on its own;
+ *   QueryClientConVar asks the client's game for any of its ConVars over the
+ *   wire, and the answer comes back later (or CANCELLED when it leaves first).
+ *
+ * ========================================================================== */
+
+static const char *QueryResultName(ESource2ModConVarQueryResult result)
+{
+    switch (result)
+    {
+        case SOURCE2MOD_CVARQUERY_OKAY: return "ok";
+        case SOURCE2MOD_CVARQUERY_NOTFOUND: return "no such ConVar";
+        case SOURCE2MOD_CVARQUERY_NOTVALID: return "a command, not a ConVar";
+        case SOURCE2MOD_CVARQUERY_PROTECTED: return "protected";
+        case SOURCE2MOD_CVARQUERY_CANCELLED: return "left before answering";
+    }
+    return "?";
+}
+
+void SamplePlugin::SetupClients()
+{
+    // sample_clients: every slot that has a client, as the engine sees it.
+    g_pSource2ModCommands->RegisterConCommand("sample_clients", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
+    {
+        for (int i = 0; i < MaxClients(); i++)
+        {
+            const CPlayerSlot slot(i);
+            CServerSideClient *pClient = g_pSource2ModClients->GetServerSideClient(slot);
+            if (!pClient)
+                continue;
+
+            Reply(context, "%d: %s, signon %d%s%s%s %s", i, pClient->GetClientName(), (int)pClient->GetSignonState(),
+                  pClient->IsFakePlayer() ? ", bot" : "", g_pSource2ModClients->IsAuthorized(slot) ? ", authorized" : "",
+                  CCSPlayerController::FromSlot(slot) ? "" : ", no controller", g_pSource2ModClients->GetIpAddress(slot).c_str());
+        }
+        Reply(context, "%d in game, %d connected, %d slots.", g_pSource2ModClients->GetClientCount(true),
+              g_pSource2ModClients->GetClientCount(false), MaxClients());
+    });
+
+    // sample_cvar <name>: asks the caller's game for one of its ConVars. The
+    // command has long returned when the answer arrives, so the reply goes
+    // to the slot, not through the command context.
+    g_pSource2ModCommands->RegisterConCommand("sample_cvar", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
+    {
+        const CPlayerSlot caller = context.GetPlayerSlot();
+        if (!caller.IsValid() || args.ArgC() < 2)
+        {
+            Reply(context, "Usage (as a player): sample_cvar <name>");
+            return;
+        }
+
+        const int cookie = g_pSource2ModClients->QueryClientConVar(caller, args.Arg(1),
+            [](CPlayerSlot slot, int cookie, ESource2ModConVarQueryResult result, const char *name, const char *value)
+        {
+            char szBuffer[256];
+            snprintf(szBuffer, sizeof(szBuffer), "%s: %s%s%s", name, QueryResultName(result),
+                     result == SOURCE2MOD_CVARQUERY_OKAY ? " = " : "", value);
+            g_pSource2ModClients->PrintToChat(slot, szBuffer);
+        });
+
+        if (cookie == -1)
+            Reply(context, "Your client cannot be asked.");
+    });
+
+    // sample_kickme: Disconnect runs on the next frame, so it is safe from
+    // inside this very client's command.
+    g_pSource2ModCommands->RegisterConCommand("sample_kickme", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
+    {
+        const CPlayerSlot caller = context.GetPlayerSlot();
+        if (caller.IsValid())
+            g_pSource2ModClients->Disconnect(caller, NETWORK_DISCONNECT_KICKED, "sample_kickme");
+    });
 }
