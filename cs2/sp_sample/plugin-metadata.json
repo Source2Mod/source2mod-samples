@@ -4,5 +4,5 @@
     "description": "Source2Mod's SourcePawn API, a section at a time (cpp_sample is the C++ twin)",
     "author": "Slynx (˙·٠● S l y n x ●٠·˙)",
     "url": "https://github.com/Source2Mod/source2mod",
-    "version": "1.0.0.{{git-shorthash}}"
+    "version": "{{semver}} @ {{github-sha}}"
 }

@@ -3,5 +3,5 @@
     "display_name": "C++ Sample",
     "description": "Source2Mod's C++ API, a section at a time (sp_sample is the SourcePawn twin)",
     "author": "Slynx (˙·٠● S l y n x ●٠·˙)",
-    "version": "1.0.0.{{git-shorthash}}"
+    "version": "{{semver}} @ {{github-sha}}"
 }

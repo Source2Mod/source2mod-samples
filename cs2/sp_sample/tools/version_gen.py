@@ -8,9 +8,12 @@ turns it into the defines myinfo is filled from. Both build systems call in
 here -- CMake runs this as a script, AMBuild imports render() and feeds the
 result to builder.AddOutputFile() so a metadata edit retriggers the compile.
 
-A version string may contain {{git-shorthash}}, which is replaced with the
-short hash of the working tree it is generated from, or "0" outside a git
-checkout.
+A version string may contain:
+  {{semver}}         SEMVER from the environment (the release CI sets it),
+                     "Local" otherwise
+  {{github-sha}}     GITHUB_SHA_SHORT from the environment, "Local" otherwise
+  {{git-shorthash}}  the short hash of the working tree it is generated from,
+                     or "0" outside a git checkout
 """
 
 import argparse
@@ -39,12 +42,23 @@ def git_shorthash(path):
     return '0'
 
 
+def env_or_local(name):
+    value = os.environ.get(name, '')
+    return value if value else 'Local'
+
+
 def load(metadata_path):
     with open(metadata_path, 'r', encoding='utf-8') as fp:
         return json.load(fp)
 
 
 def render(metadata, shorthash='0'):
+    tokens = {
+        '{{semver}}': env_or_local('SEMVER'),
+        '{{github-sha}}': env_or_local('GITHUB_SHA_SHORT'),
+        '{{git-shorthash}}': shorthash,
+    }
+
     # SourcePawn's preprocessor has no #ifndef; an include guard is
     # "#if defined ... #endinput".
     lines = [
@@ -60,7 +74,9 @@ def render(metadata, shorthash='0'):
     width = max(len(define) for _, define in FIELDS)
 
     for key, define in FIELDS:
-        value = str(metadata.get(key, '')).replace('{{git-shorthash}}', shorthash)
+        value = str(metadata.get(key, ''))
+        for token, replacement in tokens.items():
+            value = value.replace(token, replacement)
         value = value.replace('\\', '\\\\').replace('"', '\\"')
         lines.append('#define {} "{}"'.format(define.ljust(width), value))
 
