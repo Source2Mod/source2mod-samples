@@ -160,17 +160,17 @@ bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t ma
     // at the engine: SOURCE2MOD_FILLGAMEVARS().
     SOURCE2MOD_SAVEVARS();
 
-    SOURCE2MOD_LOG(this, "Starting plugin.\n");
+    SOURCE2MOD_LOG("Starting plugin.\n");
 
     // OnLevelInit, OnAllSource2ModPluginsLoaded and the rest of
     // ISource2ModListener. Everything the engine and the game do -- clients,
     // frames, entities, game functions -- is a hook point instead
     // (ISource2ModHooks, sections 5 and 8).
-    api->AddListener(this, this);
+    api->AddListener(this);
 
     // Section 20: config.json is read (and created from the defaults when it
     // is missing) right here, so everything below can use its values.
-    if (!g_pSource2ModConfigs || !g_pSource2ModConfigs->AddListener(this, this, error, maxlen))
+    if (!g_pSource2ModConfigs || !g_pSource2ModConfigs->AddListener(this, error, maxlen))
         return false;
 
     SetupConVars();
@@ -229,12 +229,12 @@ void SamplePlugin::OnAllSource2ModPluginsLoaded()
 
 void SamplePlugin::OnLevelInit(const char* pMapName, const char* pMapEntities, const char* pOldLevel, const char* pLandmarkName, bool loadGame, bool background)
 {
-    SOURCE2MOD_LOG(this, "OnLevelInit(%s)\n", pMapName);
+    SOURCE2MOD_LOG("OnLevelInit(%s)\n", pMapName);
 }
 
 void SamplePlugin::OnLevelShutdown()
 {
-    SOURCE2MOD_LOG(this, "OnLevelShutdown()\n");
+    SOURCE2MOD_LOG("OnLevelShutdown()\n");
 
     // The countdown timer is TIMER_FLAG_NO_MAPCHANGE: the scheduler kills it
     // here, and the pointer with it. See SetupTimers().
@@ -268,7 +268,7 @@ void SamplePlugin::SetupConVars()
         if (V_strcmp(ref->GetName(), "sample_cvarf") != 0)
             return;
 
-        SOURCE2MOD_LOG(&g_Plugin, "Sample convar \"%s\" was changed from %s to %s\n", ref->GetName(), pszOldValue, pszNewValue);
+        SOURCE2MOD_LOG("Sample convar \"%s\" was changed from %s to %s\n", ref->GetName(), pszOldValue, pszNewValue);
     });
 
     ConVar_Register(FCVAR_RELEASE | FCVAR_CLIENT_CAN_EXECUTE | FCVAR_GAMEDLL);
@@ -288,7 +288,7 @@ void SamplePlugin::SetupConVars()
 
     if (ccvar_ref_example.IsValidRef() && ccvar_ref_example.IsConVarDataAvailable())
     {
-        SOURCE2MOD_LOG(this, "CConVarRef \"%s\" got value pre = %d [float = %f, bool = %d, string = \"%s\"]\n",
+        SOURCE2MOD_LOG("CConVarRef \"%s\" got value pre = %d [float = %f, bool = %d, string = \"%s\"]\n",
                     ccvar_ref_example.GetName(), ccvar_ref_example.Get(), ccvar_ref_example.GetFloat(),
                     ccvar_ref_example.GetBool(), ccvar_ref_example.GetString().Get());
 
@@ -303,7 +303,7 @@ void SamplePlugin::SetupConVars()
         // example, refer to ConVarRefAbstract declaration for more info on these
         ccvar_ref_example.SetFloat(8.5f);
 
-        SOURCE2MOD_LOG(this, "CConVarRef \"%s\" got value after = %d [float = %f, bool = %d, string = \"%s\"]\n",
+        SOURCE2MOD_LOG("CConVarRef \"%s\" got value after = %d [float = %f, bool = %d, string = \"%s\"]\n",
                     ccvar_ref_example.GetName(), ccvar_ref_example.Get(), ccvar_ref_example.GetFloat(),
                     ccvar_ref_example.GetBool(), ccvar_ref_example.GetString().Get());
     }
@@ -317,7 +317,7 @@ void SamplePlugin::SetupConVars()
 
     if (cvar_ref_example.IsValidRef())
     {
-        SOURCE2MOD_LOG(this, "ConVarRefAbstract \"%s\" got value pre [float = %f, bool = %d, string = \"%s\"]\n",
+        SOURCE2MOD_LOG("ConVarRefAbstract \"%s\" got value pre [float = %f, bool = %d, string = \"%s\"]\n",
                     cvar_ref_example.GetName(), cvar_ref_example.GetFloat(), cvar_ref_example.GetBool(),
                     cvar_ref_example.GetString().Get());
 
@@ -343,7 +343,7 @@ void SamplePlugin::SetupConVars()
             promoted_ref.Set(5);
         }
 
-        SOURCE2MOD_LOG(this, "ConVarRefAbstract \"%s\" got value after [float = %f, bool = %d, string = \"%s\"]\n",
+        SOURCE2MOD_LOG("ConVarRefAbstract \"%s\" got value after [float = %f, bool = %d, string = \"%s\"]\n",
                     cvar_ref_example.GetName(), cvar_ref_example.GetFloat(), cvar_ref_example.GetBool(),
                     cvar_ref_example.GetString().Get());
     }
@@ -364,7 +364,7 @@ void SamplePlugin::SetupCommands()
     // source2mod routes "!sample_command" and "/sample_command" to the same handler.
     g_pSource2ModCommands->RegisterConCommand("sample_command", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post)
     {
-        SOURCE2MOD_LOG(&g_Plugin, "Sample command called by %d. Command: %s\n", context.GetPlayerSlot().Get(), args.GetCommandString());
+        SOURCE2MOD_LOG("Sample command called by %d. Command: %s\n", context.GetPlayerSlot().Get(), args.GetCommandString());
     });
 
     // Arguments and the caller. Arg(0) is the command itself, ArgS() is
@@ -419,7 +419,7 @@ void SamplePlugin::SetupCommands()
 
     g_pSource2ModCommands->HookConCommand("jointeam", [](const Source2ModCommandContext& context, const Source2ModCommandArgs& args, bool post) -> Action
     {
-        SOURCE2MOD_LOG(&g_Plugin, "Slot %d ran \"%s\"\n", context.GetPlayerSlot().Get(), args.GetCommandString());
+        SOURCE2MOD_LOG("Slot %d ran \"%s\"\n", context.GetPlayerSlot().Get(), args.GetCommandString());
         return Action::Ignore;
     }, true);
 }
@@ -444,7 +444,7 @@ void SamplePlugin::SetupGameEvents()
         auto *pVictim = static_cast<CCSPlayerController *>(event->GetPlayerController("userid"));
         auto *pAttacker = static_cast<CCSPlayerController *>(event->GetPlayerController("attacker"));
 
-        SOURCE2MOD_LOG(&g_Plugin, "player_death: %s killed %s with %s%s\n",
+        SOURCE2MOD_LOG("player_death: %s killed %s with %s%s\n",
                     pAttacker ? pAttacker->GetPlayerName() : "world",
                     pVictim ? pVictim->GetPlayerName() : "?",
                     event->GetString("weapon"),
@@ -476,7 +476,7 @@ void SamplePlugin::SetupGameEvents()
 
     g_pSource2ModEvents->HookGameEvent("player_jump", [](IGameEvent *event, bool post, bool &dontBroadcast) -> Action
     {
-        SOURCE2MOD_LOG(&g_Plugin, "player_jump: slot %d\n", event->GetPlayerSlot("userid").Get());
+        SOURCE2MOD_LOG("player_jump: slot %d\n", event->GetPlayerSlot("userid").Get());
         return Action::Ignore;
     }, true);
 
@@ -590,7 +590,7 @@ Action SamplePlugin::OnEntityOutput(CEntityInstance* pCaller, const char* pszOut
     // Called pre and post; one log line is enough.
     if (!post)
     {
-        SOURCE2MOD_LOG(this, "%s fired %s (activator: %s)\n",
+        SOURCE2MOD_LOG("%s fired %s (activator: %s)\n",
                     pCaller ? pCaller->GetClassname() : "?", pszOutput,
                     pActivator ? pActivator->GetClassname() : "none");
     }
@@ -600,7 +600,7 @@ Action SamplePlugin::OnEntityOutput(CEntityInstance* pCaller, const char* pszOut
 
 HookReturn<bool> SamplePlugin::OnClientConnect(ClientConnectContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientConnect(%d, \"%s\", %lld, \"%s\")\n", ctx.slot.Get(), ctx.name, ctx.xuid, ctx.networkId);
+    SOURCE2MOD_LOG("OnClientConnect(%d, \"%s\", %lld, \"%s\")\n", ctx.slot.Get(), ctx.name, ctx.xuid, ctx.networkId);
 
     // A point with a return value answers the value alongside the action.
     // Supersede with false turns the client away, with the reason in
@@ -618,19 +618,19 @@ HookReturn<bool> SamplePlugin::OnClientConnect(ClientConnectContext& ctx, bool p
 
 HookReturn<void> SamplePlugin::OnClientPutInServer(ClientPutInServerContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientPutInServer(%d, \"%s\", %d, %lld)\n", ctx.slot.Get(), ctx.name, ctx.type, ctx.xuid);
+    SOURCE2MOD_LOG("OnClientPutInServer(%d, \"%s\", %d, %lld)\n", ctx.slot.Get(), ctx.name, ctx.type, ctx.xuid);
     return Action::Ignore;
 }
 
 HookReturn<void> SamplePlugin::OnClientSettingsChanged(ClientSlotContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientSettingsChanged(%d)\n", ctx.slot.Get());
+    SOURCE2MOD_LOG("OnClientSettingsChanged(%d)\n", ctx.slot.Get());
     return Action::Ignore;
 }
 
 HookReturn<void> SamplePlugin::OnClientDisconnect(ClientDisconnectContext& ctx, bool post)
 {
-    SOURCE2MOD_LOG(this, "OnClientDisconnect(%d, %d, \"%s\", %lld, \"%s\")\n", ctx.slot.Get(), ctx.reason, ctx.name, ctx.xuid, ctx.networkId);
+    SOURCE2MOD_LOG("OnClientDisconnect(%d, %d, \"%s\", %lld, \"%s\")\n", ctx.slot.Get(), ctx.reason, ctx.name, ctx.xuid, ctx.networkId);
 
     // Per-slot state has to go with the player, or the next one to take the
     // slot inherits it.
@@ -658,7 +658,7 @@ HookReturn<void> SamplePlugin::OnClientCommand(FunctionContext& ctx, bool post)
     // command. Use it to take a command over, not to "handle it as well".
     if (pArgs && !V_strcmp(pArgs->Arg(0), "sample_blocked"))
     {
-        SOURCE2MOD_LOG(this, "Swallowing \"sample_blocked\" from slot %d -- the engine will never see it.\n", ctx.GetArg<int>(1));
+        SOURCE2MOD_LOG("Swallowing \"sample_blocked\" from slot %d -- the engine will never see it.\n", ctx.GetArg<int>(1));
         return Action::Supersede;
     }
 
@@ -939,7 +939,7 @@ void SamplePlugin::SetupGameFunctions()
 HookReturn<void> SamplePlugin::OnGiveNamedItem(FunctionContext& ctx, bool post)
 {
     const char *pszItem = ctx.GetArg<const char *>(1);
-    SOURCE2MOD_LOG(this, "GiveNamedItem: %s\n", pszItem ? pszItem : "?");
+    SOURCE2MOD_LOG("GiveNamedItem: %s\n", pszItem ? pszItem : "?");
 
     // ctx.SetReturn<CBasePlayerWeapon *>(nullptr) + Supersede would give
     // nothing -- the caller gets no weapon back.
@@ -952,7 +952,7 @@ HookReturn<void> SamplePlugin::OnUtilRemove(FunctionContext& ctx, bool post)
 {
     CEntityInstance *pEntity = ctx.GetArg<CEntityInstance *>(0);
     if (pEntity && !V_strncmp(pEntity->GetClassname(), "weapon_", 7))
-        SOURCE2MOD_LOG(this, "UTIL_Remove: %s\n", pEntity->GetClassname());
+        SOURCE2MOD_LOG("UTIL_Remove: %s\n", pEntity->GetClassname());
 
     return Action::Ignore;
 }
@@ -970,7 +970,7 @@ HookReturn<void> SamplePlugin::OnSnapViewAngles(FunctionContext& ctx, bool post)
         return Action::Ignore;
 
     if (auto *pAngles = ctx.GetArg<QAngle *>(1))
-        SOURCE2MOD_LOG(this, "SnapViewAngles: %.1f %.1f %.1f\n", pAngles->x, pAngles->y, pAngles->z);
+        SOURCE2MOD_LOG("SnapViewAngles: %.1f %.1f %.1f\n", pAngles->x, pAngles->y, pAngles->z);
 
     return Action::Ignore;
 }
@@ -981,7 +981,7 @@ HookReturn<void> SamplePlugin::OnSwitchTeam(FunctionContext& ctx, bool post)
 {
     auto *pController = ctx.GetArg<CCSPlayerController *>(0);
     const int nTeam = ctx.GetArg<int>(1);
-    SOURCE2MOD_LOG(this, "SwitchTeam: %s %d -> %d\n", pController ? pController->GetPlayerName() : "?",
+    SOURCE2MOD_LOG("SwitchTeam: %s %d -> %d\n", pController ? pController->GetPlayerName() : "?",
                    pController ? pController->m_iTeamNum() : -1, nTeam);
 
     // Supersede would keep the player where they are; ctx.SetArg(1, 3) +
@@ -994,7 +994,7 @@ HookReturn<TakeDamageContext::Return> SamplePlugin::OnTakeDamage(TakeDamageConte
 {
     // The context holds the call: the entity taking damage, the damage info,
     // the result, and for a function with a return value ctx.result.
-    SOURCE2MOD_LOG(this, "TakeDamage: %s, %.1f damage\n", ctx.entity ? ctx.entity->GetClassname() : "?", ctx.info ? ctx.info->m_flDamage : 0.0f);
+    SOURCE2MOD_LOG("TakeDamage: %s, %.1f damage\n", ctx.entity ? ctx.entity->GetClassname() : "?", ctx.info ? ctx.info->m_flDamage : 0.0f);
 
     // Changing an argument: this is a Pre handler, so the game runs after it,
     // with whatever is in the damage info by then.
@@ -1350,7 +1350,7 @@ void SamplePlugin::SetupScriptNatives()
     // without script support.
     if (!g_pSource2ModNatives)
     {
-        SOURCE2MOD_LOG(this, "No " SOURCE2MOD_NATIVES_INTERFACE " in this core, no script natives.\n");
+        SOURCE2MOD_LOG("No " SOURCE2MOD_NATIVES_INTERFACE " in this core, no script natives.\n");
         return;
     }
 
@@ -1408,9 +1408,9 @@ void SamplePlugin::SetupPathsAndPermissions()
 {
     // Absolute paths, no trailing separator. PLUGIN_CONFIG_DIR() is this
     // plugin's own folder under configs/, made on first use.
-    SOURCE2MOD_LOG(this, "Root: %s\n", g_pSource2ModPaths->RootDirectory());
-    SOURCE2MOD_LOG(this, "Configs: %s\n", g_pSource2ModPaths->ConfigsDirectory());
-    SOURCE2MOD_LOG(this, "My configs: %s\n", PLUGIN_CONFIG_DIR());
+    SOURCE2MOD_LOG("Root: %s\n", g_pSource2ModPaths->RootDirectory());
+    SOURCE2MOD_LOG("Configs: %s\n", g_pSource2ModPaths->ConfigsDirectory());
+    SOURCE2MOD_LOG("My configs: %s\n", PLUGIN_CONFIG_DIR());
 
     // A group of our own that holds a permission of our own. permissions.json
     // can grant the same group to admins; sample_vip below adds you at runtime.
@@ -1531,7 +1531,7 @@ void SamplePlugin::SetupGameSystems()
         // Only systems whose factory keeps a static instance can be found;
         // SoundOpGameSystem does, GameRulesGameSystem for one does not.
         IGameSystem *pSoundOps = g_pSource2ModGameSystems->FindByName("SoundOpGameSystem");
-        SOURCE2MOD_LOG(this, "SoundOpGameSystem: %s\n", pSoundOps ? "found" : "missing");
+        SOURCE2MOD_LOG("SoundOpGameSystem: %s\n", pSoundOps ? "found" : "missing");
     }
 
     // sample_remove: removes what is under the crosshair through UTIL_Remove,
@@ -1582,13 +1582,13 @@ void SamplePlugin::SetupJsonAndHttp()
         for (int i = 0; pSections && i < pSections->Count(); i++)
             nSum += pSections->At(i)->AsInt();
 
-        SOURCE2MOD_LOG(this, "JSON: %s, %d sections summing to %d, nested.ok %d\n",
+        SOURCE2MOD_LOG("JSON: %s, %d sections summing to %d, nested.ok %d\n",
                     pRoot->GetString("name"), pSections ? pSections->Count() : 0, nSum,
                     pNested ? pNested->GetBool("ok") : false);
     }
     else
     {
-        SOURCE2MOD_LOG(this, "JSON error: %s\n", pDoc->GetError());
+        SOURCE2MOD_LOG("JSON error: %s\n", pDoc->GetError());
     }
     pDoc->Release();
 
@@ -1811,7 +1811,7 @@ public:
     // The menu went away for a player -- not called when the plugin unloads.
     void OnMenuEnd(CCSPlayerController *pPlayer, MenuEndReason reason) override
     {
-        SOURCE2MOD_LOG(&g_Plugin, "Menu closed for %s: %s\n", pPlayer ? pPlayer->GetPlayerName() : "?", MenuEndReasonName(reason));
+        SOURCE2MOD_LOG("Menu closed for %s: %s\n", pPlayer ? pPlayer->GetPlayerName() : "?", MenuEndReasonName(reason));
     }
 
 private:
@@ -1883,7 +1883,7 @@ public:
 
         m_nCounts[key]++;
         m_nTotal++;
-        SOURCE2MOD_LOG(&g_Plugin, "Key test: %s pressed %d on page %d (%d presses)\n", pPlayer->GetPlayerName(), key, m_nPage + 1, m_nTotal);
+        SOURCE2MOD_LOG("Key test: %s pressed %d on page %d (%d presses)\n", pPlayer->GetPlayerName(), key, m_nPage + 1, m_nTotal);
 
         if (key == 9)
             m_nPage = 1 - m_nPage;
@@ -1949,7 +1949,7 @@ void SamplePlugin::SetupMenus()
         {
             HOOK_CUSTOM_HUD_CLICK(static_cast<CCSCustomHudLayout *>(pEntity), [](CCSPlayerController *pPlayer, CCSCustomHudLayout *pLayout, const char *pszButtonId)
             {
-                SOURCE2MOD_LOG(&g_Plugin, "%s clicked \"%s\" on a custom HUD layout\n", pPlayer ? pPlayer->GetPlayerName() : "?", pszButtonId);
+                SOURCE2MOD_LOG("%s clicked \"%s\" on a custom HUD layout\n", pPlayer ? pPlayer->GetPlayerName() : "?", pszButtonId);
             });
             nHooked++;
         }
@@ -1995,7 +1995,7 @@ void SamplePlugin::SetupScripts()
             }
         }
 
-        SOURCE2MOD_LOG(&g_Plugin, "Script message on %s: %s\n", pszChannel, text.c_str());
+        SOURCE2MOD_LOG("Script message on %s: %s\n", pszChannel, text.c_str());
     });
 
     // sample_script: runs the source above as a point_script named
@@ -2068,7 +2068,7 @@ void SamplePlugin::OnConfigChanged(ISource2ModConfig *config, ConfigChange reaso
     m_flFeatureStrength = root->Get("Feature")->GetFloat("Strength");
     m_nConfigAdmins = root->Get("Admins")->Count();
 
-    SOURCE2MOD_LOG(this, "config.json %s: feature %s, strength %.1f, %d admin(s)\n",
+    SOURCE2MOD_LOG("config.json %s: feature %s, strength %.1f, %d admin(s)\n",
                    reason == ConfigChange::Loaded ? "loaded" : "reloaded", m_bFeatureEnabled ? "on" : "off",
                    m_flFeatureStrength, m_nConfigAdmins);
 }
