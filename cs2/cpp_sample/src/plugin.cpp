@@ -154,7 +154,7 @@ static void ForEachPlayer(FN &&fn)
  *
  * ========================================================================== */
 
-bool SamplePlugin::Load(PluginId id, ISource2ModAPI* api, char* error, size_t maxlen, bool late)
+bool SamplePlugin::Load(ISource2ModAPI *api, char* error, size_t maxlen, bool late)
 {
     // Also points s2sdk's engine globals (g_pSource2Server, g_pCVar, ...)
     // at the engine: SOURCE2MOD_FILLGAMEVARS().
@@ -559,7 +559,7 @@ void SamplePlugin::SetupCoreEvents()
     // object it lives on. The types say how to read the call: `this`, the
     // slot, the command.
     static const Source2ModType kClientCommand[] = { Source2ModType::Pointer, Source2ModType::Int32, Source2ModType::Command };
-    ISource2ModFunction *pClientCommand = g_pSource2ModFunctions->FromVirtual(g_PluginID,
+    ISource2ModFunction *pClientCommand = g_pSource2ModFunctions->FromVirtual(
         KHook::GetVtableIndex(&ISource2GameClients::ClientCommand),
         FunctionTypes{ Source2ModType::Void, kClientCommand, 3, true });
 
@@ -876,14 +876,14 @@ void SamplePlugin::SetupGameFunctions()
     //    the types spelled out: a method -- `this` first -- ...
     static const Source2ModType kGiveNamedItem[] = { Source2ModType::Pointer, Source2ModType::String, Source2ModType::Int32,
                                                      Source2ModType::Pointer, Source2ModType::Bool, Source2ModType::Pointer };
-    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->Create(g_PluginID, reinterpret_cast<void *>(ADDR_GIVE_NAMED_ITEM()),
+    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->Create(reinterpret_cast<void *>(ADDR_GIVE_NAMED_ITEM()),
                                                                          nullptr, -1, true, Source2ModType::Entity, kGiveNamedItem, 6);
     g_pSource2ModHooks->Hook(HookPoint::Function(pGiveNamedItem), HookTarget::All(), { this, &SamplePlugin::OnGiveNamedItem });
 
     //    ... and a free function, whose "object" for a target is its first
     //    argument.
     static const Source2ModType kUtilRemove[] = { Source2ModType::Entity };
-    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->Create(g_PluginID, reinterpret_cast<void *>(ADDR_UTIL_REMOVE()),
+    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->Create(reinterpret_cast<void *>(ADDR_UTIL_REMOVE()),
                                                                       nullptr, -1, false, Source2ModType::Void, kUtilRemove, 1);
     g_pSource2ModHooks->Hook(HookPoint::Function(pUtilRemove), HookTarget::All(), { this, &SamplePlugin::OnUtilRemove });
 
@@ -892,7 +892,7 @@ void SamplePlugin::SetupGameFunctions()
     //    whenever the game moves the function. (FromSymbol, FromVirtualTable
     //    and FromSignatureRelative are the other ways in.)
     static const Source2ModType kSnapViewAngles[] = { Source2ModType::Entity, Source2ModType::Pointer };
-    ISource2ModFunction *pSnapViewAngles = g_pSource2ModFunctions->FromSignature(g_PluginID, "server",
+    ISource2ModFunction *pSnapViewAngles = g_pSource2ModFunctions->FromSignature(g_pSource2ModModules->Get(Source2ModModuleId::Server),
         WIN_LINUX("48 89 7C 24 ? 55 48 8B EC 48 81 EC ? ? ? ? 48 8B F9 48 8D 4D ? E8 ? ? ? ? F2 0F 10 87 C8 0B 00 00",
                   "55 48 89 E5 41 57 49 89 FF 48 89 F7 41 56 41 55 41 54 53 48 81 EC ? ? ? ? E8"),
         FunctionTypes{ Source2ModType::Void, kSnapViewAngles, 2, true });
@@ -1354,13 +1354,13 @@ void SamplePlugin::SetupScriptNatives()
         return;
     }
 
-    g_CounterType = g_pSource2ModNatives->CreateHandleType(g_PluginID, "SampleCounter", [](void *object)
+    g_CounterType = g_pSource2ModNatives->CreateHandleType("SampleCounter", [](void *object)
     {
         delete static_cast<int *>(object);
     });
 
-    g_pSource2ModNatives->AddNatives(g_PluginID, g_SampleNatives);
-    g_pSource2ModNatives->RegisterLibrary(g_PluginID, "cpp_sample");
+    g_pSource2ModNatives->AddNatives(g_SampleNatives);
+    g_pSource2ModNatives->RegisterLibrary("cpp_sample");
 }
 
 /* ============================================================================
@@ -1414,8 +1414,8 @@ void SamplePlugin::SetupPathsAndPermissions()
 
     // A group of our own that holds a permission of our own. permissions.json
     // can grant the same group to admins; sample_vip below adds you at runtime.
-    g_pSource2ModPermissions->CreateGroup(g_PluginID, "sample_vip", 10);
-    g_pSource2ModPermissions->AddGroupPermission(g_PluginID, "sample_vip", "sample.admin");
+    g_pSource2ModPermissions->CreateGroup("sample_vip", 10);
+    g_pSource2ModPermissions->AddGroupPermission("sample_vip", "sample.admin");
 
     // A command with a permission: the core checks it before the handler
     // runs, and permissions.json's "Overrides" can re-assign it.
@@ -1660,7 +1660,7 @@ void SamplePlugin::SetupMySQL()
         }
 
         if (!m_pServerless)
-            m_pServerless = g_pSource2ModSQL->CreateServerless(g_PluginID, MySQLInfo());
+            m_pServerless = g_pSource2ModSQL->CreateServerless(MySQLInfo());
 
         const int slot = SlotOf(context);
         m_pServerless->Query("SELECT ? AS greeting, NOW() AS now", { args.ArgC() >= 2 ? args.Arg(1) : "hello" },
@@ -1919,7 +1919,7 @@ void SamplePlugin::SetupMenus()
         if (dynamic_cast<KeyTestInstance *>(GET_ACTIVE_MENU(pCaller)))
             CLOSE_ACTIVE_MENU(pCaller);
         else
-            g_pSource2ModMenus->OpenMenu(g_PluginID, pCaller, new KeyTestInstance(pCaller));
+            g_pSource2ModMenus->OpenMenu(pCaller, new KeyTestInstance(pCaller));
     });
 
     // sample_menu opens it, or closes it when it is already open.
