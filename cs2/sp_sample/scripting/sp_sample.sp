@@ -976,7 +976,7 @@ public void Cmd_Swap(Source2ModCommandContext context, Source2ModCommandArgs arg
 	int newTeam = caller.m_iTeamNum == 2 ? 3 : 2;
 
 	// Way one: the function Source2Mod already resolved, as a method of the
-	// class. cpp_sample's ADDR_SWITCH_TEAM() / pCaller->SwitchTeam().
+	// class. cpp_sample's Find("CCSPlayerController::SwitchTeam") / pCaller->SwitchTeam().
 	if (args.ArgC() < 2)
 	{
 		caller.SwitchTeam(newTeam);
@@ -1705,11 +1705,11 @@ public void Cmd_Trace(Source2ModCommandContext context, Source2ModCommandArgs ar
 
 /* ============================================================================
  *
- *   15. Game systems and addresses
+ *   15. Game systems and gamedata functions
  *
  *   Game systems are engine singletons, reached by their factory name. And
- *   the game functions the core resolved from its own gamedata
- *   (Address_*): no signature of your own, a core update after a game update.
+ *   the game functions in the core's gamedata: no signature of your own, a
+ *   core update after a game update.
  *
  * ========================================================================== */
 
@@ -1725,15 +1725,9 @@ void SetupGameSystems()
 		Source2ModApi.Log("SoundOpGameSystem: %s", soundOps.IsNull ? "missing" : "found");
 	}
 
-	// UTIL_Remove by the address the core resolved -- section 8 calls by
-	// gamedata name, this is the third way. Unresolved on this game version =
-	// the function stays null.
-	if (Source2ModAddresses.IsResolved(Address_UTIL_Remove))
-	{
-		g_UtilRemove = Source2ModFunction.FromAddress(Address_UTIL_Remove, Source2ModType_Void);
-		if (g_UtilRemove != null)
-			g_UtilRemove.AddParam(Source2ModType_Entity);
-	}
+	// UTIL_Remove by its gamedata name. A signature that does not match this
+	// game version = the function stays null.
+	g_UtilRemove = Source2ModFunction.Find("UTIL::Remove");
 
 	// sp_remove: removes what is under the crosshair.
 	Source2ModCommands.RegisterConCommand("sp_remove", Cmd_Remove);

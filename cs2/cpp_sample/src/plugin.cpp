@@ -872,19 +872,19 @@ void SamplePlugin::SetupGameFunctions()
     if (ISource2ModFunction *pSwitchTeam = g_pSource2ModFunctions->Find("CCSPlayerController::SwitchTeam"))
         g_pSource2ModHooks->Hook(HookPoint::Function(pSwitchTeam), HookTarget::All(), { this, &SamplePlugin::OnSwitchTeam });
 
-    // 2. An address Source2Mod already resolved (ISource2ModAddresses), with
+    // 2. A gamedata entry without a "function" object, or a different view of one, with
     //    the types spelled out: a method -- `this` first -- ...
     static const Source2ModType kGiveNamedItem[] = { Source2ModType::Pointer, Source2ModType::String, Source2ModType::Int32,
                                                      Source2ModType::Pointer, Source2ModType::Bool, Source2ModType::Pointer };
-    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->Create(reinterpret_cast<void *>(ADDR_GIVE_NAMED_ITEM()),
-                                                                         nullptr, -1, true, Source2ModType::Entity, kGiveNamedItem, 6);
+    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->FromGameConfig("CCSPlayer_ItemServices::GiveNamedItem",
+                                                                         { Source2ModType::Entity, kGiveNamedItem, 6, true });
     g_pSource2ModHooks->Hook(HookPoint::Function(pGiveNamedItem), HookTarget::All(), { this, &SamplePlugin::OnGiveNamedItem });
 
     //    ... and a free function, whose "object" for a target is its first
     //    argument.
     static const Source2ModType kUtilRemove[] = { Source2ModType::Entity };
-    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->Create(reinterpret_cast<void *>(ADDR_UTIL_REMOVE()),
-                                                                      nullptr, -1, false, Source2ModType::Void, kUtilRemove, 1);
+    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->FromGameConfig("UTIL::Remove",
+                                                                      { Source2ModType::Void, kUtilRemove, 1, false });
     g_pSource2ModHooks->Hook(HookPoint::Function(pUtilRemove), HookTarget::All(), { this, &SamplePlugin::OnUtilRemove });
 
     // 3. A pattern of your own, hardcoded: WIN_LINUX picks the platform's.
@@ -910,11 +910,11 @@ void SamplePlugin::SetupGameFunctions()
 
         const unsigned char nNewTeam = pCaller->m_iTeamNum() == 2 ? 3 : 2;
 
-        // Way one: Source2Mod resolved it and knows the type. ADDR_* getters
-        // return a typed function pointer, ready to call.
-        if (auto pfnSwitchTeam = ADDR_SWITCH_TEAM())
+        // Way one: a gamedata entry with a "function" object. Find() reads the
+        // types from it and Call checks yours against them.
+        if (ISource2ModFunction *pSwitchTeam = g_pSource2ModFunctions->Find("CCSPlayerController::SwitchTeam"))
         {
-            pfnSwitchTeam(pCaller, nNewTeam);
+            pSwitchTeam->Call<void(CCSPlayerController *, int)>(pCaller, nNewTeam);
             return;
         }
 
@@ -1550,11 +1550,11 @@ void SamplePlugin::SetupGameSystems()
             return;
         }
 
-        // Null when the core could not resolve it on this game version.
-        if (auto pfnRemove = ADDR_UTIL_REMOVE())
+        // Null when its signature does not match this game version.
+        if (ISource2ModFunction *pRemove = g_pSource2ModFunctions->Find("UTIL::Remove"))
         {
             Reply(context, "Removing #%d %s.", pTarget->GetIndex(), pTarget->GetClassname());
-            pfnRemove(pTarget);
+            pRemove->Call<void(CBaseEntity *)>(pTarget);
         }
     });
 }

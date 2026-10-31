@@ -88,7 +88,6 @@
 
 // SOURCE2MOD_SAVEVARS() fills one global per subsystem, so every subsystem header
 // has to be in scope for its interface name.
-#include "source2mod/ISource2ModAddresses.h"
 #include "source2mod/ISource2ModCommands.h"
 #include "source2mod/ISource2ModConfigs.h"
 #include "source2mod/ISource2ModConVars.h"
