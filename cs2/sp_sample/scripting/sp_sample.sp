@@ -2212,7 +2212,7 @@ public void Cmd_ScriptPing(Source2ModCommandContext context, Source2ModCommandAr
  *   20. Configs
  *
  *   A JSON config registered once, with its defaults: Source2Mod writes
- *   configs/SourcePawn Sample/config.example.json, creates config.json from
+ *   configs/sp_sample/config.example.json, creates config.json from
  *   the defaults when it is missing, and Root() reads the admin's file merged
  *   over the defaults -- every key below is always there. OnSampleConfig()
  *   runs right away and again whenever the file changes (or "s2m config

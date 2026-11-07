@@ -2025,7 +2025,7 @@ void SamplePlugin::SetupScripts()
  *   20. Configs
  *
  *   A JSON config the plugin declares once, with its defaults: Source2Mod
- *   writes configs/C++ Sample/config.example.json, creates config.json from
+ *   writes configs/cpp_sample/config.example.json, creates config.json from
  *   the defaults when it is missing, and hands over the admin's file merged
  *   over the defaults -- every key below is always there. When the file
  *   changes (or "s2m config reload" runs) OnConfigChanged() is called again.
@@ -2044,7 +2044,7 @@ void SamplePlugin::OnDeclareConfigs(ISource2ModConfigDeclarations *configs)
             .Add("/Feature/Strength", 2.5, "0 or more; OnConfigValidate() refuses less.")
             .AddJSON("Admins", "[]", "An array or an empty object is the admin's to fill: not merged.");
 
-    // configs/C++ Sample/config.json. More configs are more Add() calls; one
+    // configs/cpp_sample/config.json. More configs are more Add() calls; one
     // for later (say, per map) is g_pSource2ModConfigs->Register().
     configs->Add("config", defaults.Json());
 }

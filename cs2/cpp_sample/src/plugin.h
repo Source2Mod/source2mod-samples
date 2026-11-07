@@ -156,7 +156,7 @@ public: // 5. core events -- ISource2ModHooks handlers: engine callbacks, a clie
 	HookReturn<void> OnGameFrame(GameFrameContext &ctx, bool post);
 	HookReturn<void> OnClientCommand(FunctionContext &ctx, bool post);
 
-public: // 20. configs -- ISource2ModConfigListener: configs/C++ Sample/config.json
+public: // 20. configs -- ISource2ModConfigListener: configs/cpp_sample/config.json
 	void OnDeclareConfigs(ISource2ModConfigDeclarations *configs) override;
 	bool OnConfigValidate(ISource2ModConfig *config, const ISource2ModJSONValue *root, char *error, size_t maxlen) override;
 	void OnConfigChanged(ISource2ModConfig *config, ConfigChange reason) override;
