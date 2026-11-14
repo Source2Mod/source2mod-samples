@@ -556,12 +556,9 @@ void SamplePlugin::SetupCoreEvents()
     // What has no point of its own is still one call away: HookPoint::Function
     // takes any ISource2ModFunction. Here a virtual of an engine interface --
     // ISource2GameClients::ClientCommand, by its vtable slot -- on the one
-    // object it lives on. The types say how to read the call: `this`, the
+    // object it lives on. The method gives the slot and the types: `this`, the
     // slot, the command.
-    static const Source2ModType kClientCommand[] = { Source2ModType::Pointer, Source2ModType::Int32, Source2ModType::Command };
-    ISource2ModFunction *pClientCommand = g_pSource2ModFunctions->FromVirtual(
-        KHook::GetVtableIndex(&ISource2GameClients::ClientCommand),
-        FunctionTypes{ Source2ModType::Void, kClientCommand, 3, true });
+    ISource2ModFunction *pClientCommand = g_pSource2ModFunctions->FromVirtual(&ISource2GameClients::ClientCommand);
 
     g_pSource2ModHooks->Hook(HookPoint::Function(pClientCommand), HookTarget::Instance(g_pSource2GameClients),
                              { this, &SamplePlugin::OnClientCommand });
@@ -873,29 +870,25 @@ void SamplePlugin::SetupGameFunctions()
         g_pSource2ModHooks->Hook(HookPoint::Function(pSwitchTeam), HookTarget::All(), { this, &SamplePlugin::OnSwitchTeam });
 
     // 2. A gamedata entry without a "function" object, or a different view of one, with
-    //    the types spelled out: a method -- `this` first -- ...
-    static const Source2ModType kGiveNamedItem[] = { Source2ModType::Pointer, Source2ModType::String, Source2ModType::Int32,
-                                                     Source2ModType::Pointer, Source2ModType::Bool, Source2ModType::Pointer };
-    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->FromGameConfig("CCSPlayer_ItemServices::GiveNamedItem",
-                                                                         { Source2ModType::Entity, kGiveNamedItem, 6, true });
+    //    the types read off a C++ function type: a method -- a pointer to member, so
+    //    `this` comes first -- ...
+    using GiveNamedItem_t = CBasePlayerWeapon *(CCSPlayer_ItemServices::*)(const char *, int, CEconItemView *, bool, Vector *);
+    ISource2ModFunction *pGiveNamedItem = g_pSource2ModFunctions->FromGameConfig<GiveNamedItem_t>("CCSPlayer_ItemServices::GiveNamedItem");
     g_pSource2ModHooks->Hook(HookPoint::Function(pGiveNamedItem), HookTarget::All(), { this, &SamplePlugin::OnGiveNamedItem });
 
     //    ... and a free function, whose "object" for a target is its first
-    //    argument.
-    static const Source2ModType kUtilRemove[] = { Source2ModType::Entity };
-    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->FromGameConfig("UTIL::Remove",
-                                                                      { Source2ModType::Void, kUtilRemove, 1, false });
+    //    argument (an entity: a pointer to an entity class is Entity).
+    ISource2ModFunction *pUtilRemove = g_pSource2ModFunctions->FromGameConfig<void(CEntityInstance *)>("UTIL::Remove");
     g_pSource2ModHooks->Hook(HookPoint::Function(pUtilRemove), HookTarget::All(), { this, &SamplePlugin::OnUtilRemove });
 
     // 3. A pattern of your own, hardcoded: WIN_LINUX picks the platform's.
     //    Only for what nothing else resolves -- it needs a plugin update
     //    whenever the game moves the function. (FromSymbol, FromVirtualTable
     //    and FromSignatureRelative are the other ways in.)
-    static const Source2ModType kSnapViewAngles[] = { Source2ModType::Entity, Source2ModType::Pointer };
-    ISource2ModFunction *pSnapViewAngles = g_pSource2ModFunctions->FromSignature(g_pSource2ModModules->Get(Source2ModModuleId::Server),
+    ISource2ModFunction *pSnapViewAngles = g_pSource2ModFunctions->FromSignature<void (CBasePlayerPawn::*)(QAngle *)>(
+        g_pSource2ModModules->Get(Source2ModModuleId::Server),
         WIN_LINUX("48 89 7C 24 ? 55 48 8B EC 48 81 EC ? ? ? ? 48 8B F9 48 8D 4D ? E8 ? ? ? ? F2 0F 10 87 C8 0B 00 00",
-                  "55 48 89 E5 41 57 49 89 FF 48 89 F7 41 56 41 55 41 54 53 48 81 EC ? ? ? ? E8"),
-        FunctionTypes{ Source2ModType::Void, kSnapViewAngles, 2, true });
+                  "55 48 89 E5 41 57 49 89 FF 48 89 F7 41 56 41 55 41 54 53 48 81 EC ? ? ? ? E8"));
     g_pSource2ModHooks->Hook(HookPoint::Function(pSnapViewAngles), HookTarget::All(), { this, &SamplePlugin::OnSnapViewAngles });
 
     // Calling. An address and a function pointer type are all it takes.

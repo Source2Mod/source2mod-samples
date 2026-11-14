@@ -683,9 +683,7 @@ void SetupClientCommandHook()
 	Source2ModFunction command = Source2ModFunction.FromVirtualTable("server", "CSource2GameClients", commandIndex, Source2ModType_Void);
 	if (command != null)
 	{
-		command.AddParam(Source2ModType_Pointer);        // this
-		command.AddParam(Source2ModType_Int32);          // CPlayerSlot
-		command.AddParam(Source2ModType_Command);        // const CCommand &
+		command.SetTypes("void (pointer this, int32 slot, command args)");
 		Source2ModHooks.HookFunction(command, Hook_ClientCommand);
 	}
 }
@@ -955,8 +953,7 @@ void SetupGameFunctions()
 	g_SwitchTeam = Source2ModFunction.FromGameConfig("CCSPlayerController::SwitchTeam", Source2ModType_Void);
 	if (g_SwitchTeam != null)
 	{
-		g_SwitchTeam.AddParam(Source2ModType_Entity);   // this: the controller
-		g_SwitchTeam.AddParam(Source2ModType_Int32);    // the team
+		g_SwitchTeam.SetTypes("void (entity controller, int32 team)");
 	}
 
 	Source2ModCommands.RegisterConCommand("sp_swap", Cmd_Swap);
@@ -1042,17 +1039,12 @@ void SetupFunctionHooks()
 	if (switchTeam != null)
 		Source2ModHooks.HookFunction(switchTeam, Hook_SwitchTeam);
 
-	// 2. A gamedata entry without one, with the types spelled out: every item
+	// 2. A gamedata entry without one, with the types written as a prototype: every item
 	//    a player is given -- sp_give below, buying, a round's loadout.
 	Source2ModFunction giveNamedItem = Source2ModFunction.FromGameConfig("CCSPlayer_ItemServices::GiveNamedItem", Source2ModType_Entity);
 	if (giveNamedItem != null)
 	{
-		giveNamedItem.AddParam(Source2ModType_Object);    // this: the item services
-		giveNamedItem.AddParam(Source2ModType_String);    // the item
-		giveNamedItem.AddParam(Source2ModType_Int32);     // subtype
-		giveNamedItem.AddParam(Source2ModType_Pointer);   // CEconItemView *
-		giveNamedItem.AddParam(Source2ModType_Bool);      // force
-		giveNamedItem.AddParam(Source2ModType_Pointer);
+		giveNamedItem.SetTypes("entity (object itemServices, string item, int32 subtype, pointer econItem, bool force, pointer origin)");
 		Source2ModHooks.HookFunction(giveNamedItem, Hook_GiveNamedItem);
 	}
 
@@ -1060,7 +1052,7 @@ void SetupFunctionHooks()
 	Source2ModFunction utilRemove = Source2ModFunction.FromGameConfig("UTIL::Remove", Source2ModType_Void);
 	if (utilRemove != null)
 	{
-		utilRemove.AddParam(Source2ModType_Entity);
+		utilRemove.SetTypes("void (entity removed)");
 		Source2ModHooks.HookFunction(utilRemove, Hook_UtilRemove);
 	}
 
@@ -1075,8 +1067,7 @@ void SetupFunctionHooks()
 		    "48 89 7C 24 ? 55 48 8B EC 48 81 EC ? ? ? ? 48 8B F9 48 8D 4D ? E8 ? ? ? ? F2 0F 10 87 C8 0B 00 00", Source2ModType_Void);
 	if (snapViewAngles != null)
 	{
-		snapViewAngles.AddParam(Source2ModType_Entity);   // this: the pawn
-		snapViewAngles.AddParam(Source2ModType_Vector);   // QAngle *
+		snapViewAngles.SetTypes("void (entity pawn, vector angles)");
 		Source2ModHooks.HookFunction(snapViewAngles, Hook_SnapViewAngles);
 	}
 }
